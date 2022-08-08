@@ -7,6 +7,8 @@ use sdl2::{
     rect::{Point, Rect},
 };
 
+mod emulator;
+
 fn main() {
     let sdl_context = sdl2::init().unwrap();
     let ttf_context = sdl2::ttf::init().unwrap();
