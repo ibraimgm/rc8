@@ -151,8 +151,10 @@ impl Emulator {
             0x5 if nibble_l(b) == 0x0 => {
                 todo!("Skip if VX == VY")
             }
+            // 6XNN - Set VX to NN
             0x6 => {
-                todo!("set VX = NN")
+                let index = nibble_l(a) as usize;
+                self.V[index] = b;
             }
             0x7 => {
                 todo!("set VX = VX + NN")
@@ -321,5 +323,36 @@ mod tests {
 
         emu.execute().unwrap();
         assert_eq!(emu.PC, 0x234);
+    }
+
+    #[test]
+    fn test_store_in_register() {
+        let rom: [u8; 32] = [
+            0x60, 0x01, // 0x200: SET V0 = 0x01
+            0x61, 0x02, // 0x202: SET V1 = 0x02
+            0x62, 0x03, // 0x204: SET V2 = 0x03
+            0x63, 0x04, // 0x206: SET V3 = 0x04
+            0x64, 0x05, // 0x208: SET V4 = 0x05
+            0x65, 0x06, // 0x20A: SET V5 = 0x06
+            0x66, 0x07, // 0x20C: SET V6 = 0x07
+            0x67, 0x08, // 0x20E: SET V7 = 0x08
+            0x68, 0x09, // 0x210: SET V8 = 0x09
+            0x69, 0x0A, // 0x212: SET V9 = 0x0A
+            0x6A, 0x0B, // 0x214: SET VA = 0x0B
+            0x6B, 0x0C, // 0x216: SET VB = 0x0C
+            0x6C, 0x0D, // 0x218: SET VC = 0x0D
+            0x6D, 0x0E, // 0x21A: SET VD = 0x0E
+            0x6E, 0x0F, // 0x21C: SET VE = 0x0F
+            0x6F, 0x10, // 0x21E: SET VF = 0x10
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        let mut expected = 1u8;
+        for i in 0..16 {
+            emu.execute().unwrap();
+            assert_eq!(emu.V[i], expected);
+            expected += 1;
+        }
+        assert_eq!(emu.PC, 0x220);
     }
 }
