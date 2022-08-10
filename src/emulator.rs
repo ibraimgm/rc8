@@ -135,8 +135,9 @@ impl Emulator {
             0x0 => {
                 todo!("execute machine subroutine");
             }
+            // 1NNN - jump to address NNN
             0x1 => {
-                todo!("jump to address")
+                self.PC = nnn(a, b) as usize;
             }
             0x2 => {
                 todo!("execute subroutine")
@@ -307,5 +308,18 @@ mod tests {
         assert_eq!(emu.memory[ADDR_END - 2], 0xCC);
         assert_eq!(emu.memory[ADDR_END - 3], 0xFF);
         assert_eq!(emu.memory[ADDR_END + 1], 0x00);
+    }
+
+    #[test]
+    fn test_jump_to_address() {
+        let rom: [u8; 2] = [
+            0x12, 0x34, // 0x200: JMP 0x234
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.PC, ADDR_START);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.PC, 0x234);
     }
 }
