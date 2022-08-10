@@ -156,11 +156,17 @@ impl Emulator {
                 let index = nibble_l(a) as usize;
                 self.V[index] = b;
             }
+            // 7XNN - Set VX to VX + NN (ignore VF)
             0x7 => {
-                todo!("set VX = VX + NN")
+                let index = nibble_l(a) as usize;
+                let (result, _) = self.V[index].overflowing_add(b);
+                self.V[index] = result;
             }
+            // 8XY0 - Set VX = VY
             0x8 if nibble_l(b) == 0x0 => {
-                todo!("set VX = VY")
+                let dst = nibble_l(a) as usize;
+                let src = nibble_h(b) as usize;
+                self.V[dst] = self.V[src];
             }
             0x8 if nibble_l(b) == 0x1 => {
                 todo!("set VX = VX | VY")
@@ -354,5 +360,44 @@ mod tests {
             expected += 1;
         }
         assert_eq!(emu.PC, 0x220);
+    }
+
+    #[test]
+    fn test_set_between_registers() {
+        let rom: [u8; 4] = [
+            0x65, 0xFA, // 0x200: SET V5 = 0xFA
+            0x75, 0x14, // 0x202: SET V5 = V5 + 0x14 (overflow)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x5], 0x00);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.V[0x5], 0xFA);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.V[0x5], 0x0E);
+        assert_eq!(emu.PC, 0x204);
+    }
+
+    #[test]
+    fn test_add_const_to_register() {
+        let rom: [u8; 4] = [
+            0x60, 0xAA, // 0x200: SET V0 = 0xAA
+            0x8A, 0x00, // 0x202: SET VA = V0
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0xA], 0);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.V[0x0], 0xAA);
+        assert_eq!(emu.V[0xA], 0);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.V[0x0], 0xAA);
+        assert_eq!(emu.V[0xA], 0xAA);
+        assert_eq!(emu.PC, 0x204);
     }
 }
