@@ -181,26 +181,50 @@ impl Emulator {
                 let src = nibble_h(b) as usize;
                 self.V[dst] = self.V[src];
             }
+            // 8XY1 - Set VX = VX | VY
             0x8 if nibble_l(b) == 0x1 => {
-                todo!("set VX = VX | VY")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                self.V[x] |= self.V[y];
             }
+            // 8XY2 - Set VX = VX & VY
             0x8 if nibble_l(b) == 0x2 => {
-                todo!("set VX = VX & VY")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                self.V[x] &= self.V[y];
             }
+            // 8XY3 - Set VX = VX ^ VY
             0x8 if nibble_l(b) == 0x3 => {
-                todo!("set VX = VX ^ VY")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                self.V[x] ^= self.V[y];
             }
+            // 8XY4 - Set VX = VX + VY, set VF to 1 if carry
             0x8 if nibble_l(b) == 0x4 => {
-                todo!("set VX = VX + VY; set or clear carry")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                let (result, carry) = self.V[x].overflowing_add(self.V[y]);
+                self.V[x] = result;
+                self.V[0xF] = carry as u8;
             }
+            // 8XY5 - Set VX = VX - VY, set VF to 0 if borrow
             0x8 if nibble_l(b) == 0x5 => {
-                todo!("set VX = VX - VY; set or clear borrow")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                let (result, carry) = self.V[x].overflowing_sub(self.V[y]);
+                self.V[x] = result;
+                self.V[0xF] = (!carry) as u8;
             }
             0x8 if nibble_l(b) == 0x6 => {
                 todo!("set VX = VY >> 1; set VF to shifted bit")
             }
+            // 8XY7 - Set VX = VY - VX, set VF to 0 if borrow
             0x8 if nibble_l(b) == 0x7 => {
-                todo!("set VX = VY - VX; set or clear borrow")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                let (result, carry) = self.V[y].overflowing_sub(self.V[x]);
+                self.V[x] = result;
+                self.V[0xF] = (!carry) as u8;
             }
             0x8 if nibble_l(b) == 0xE => {
                 todo!("set VX = VY << 1; set VF to shifted bit")
@@ -508,5 +532,122 @@ mod tests {
         assert_eq!(emu.V[0x1], 0);
         assert_eq!(emu.V[0x2], 1);
         assert_eq!(emu.PC, 0x208);
+    }
+
+    #[test]
+    fn test_bitwise_or() {
+        let rom: [u8; 6] = [
+            0x60, 0xBB, // 0x200: SET V0 = 0xBB
+            0x61, 0x5A, // 0x202: SET V1 = 0x5A
+            0x80, 0x11, // 0x204: SET V0 = V0 | V1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0xFB);
+        assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_bitwise_and() {
+        let rom: [u8; 6] = [
+            0x60, 0xBB, // 0x200: SET V0 = 0xBB
+            0x61, 0x5A, // 0x202: SET V1 = 0x5A
+            0x80, 0x12, // 0x204: SET V0 = V0 & V1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x1A);
+        assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_bitwise_xor() {
+        let rom: [u8; 6] = [
+            0x60, 0xBB, // 0x200: SET V0 = 0xBB
+            0x61, 0x5A, // 0x202: SET V1 = 0x5A
+            0x80, 0x13, // 0x204: SET V0 = V0 ^ V1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0xE1);
+        assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_plus_register() {
+        let rom: [u8; 10] = [
+            0x60, 0x8A, // 0x200: Set V0 = 0x8A
+            0x61, 0x22, // 0x202: Set V1 = 0x22
+            0x80, 0x14, // 0x204: Set V0 = V0 + V1 (normal) - AC
+            0x61, 0xE0, // 0x206: Set V1 = 0xE0
+            0x80, 0x14, // 0x208: Set V0 = V0 + V1 (overflow) - 8C
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0xAC);
+        assert_eq!(emu.V[0x1], 0x22);
+        assert_eq!(emu.V[0xF], 0x00);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x8C);
+        assert_eq!(emu.V[0x1], 0xE0);
+        assert_eq!(emu.V[0xF], 0x01);
+        assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
+    fn test_minus_register_xy() {
+        let rom: [u8; 10] = [
+            0x60, 0x8A, // 0x200: Set V0 = 0x8A
+            0x61, 0x22, // 0x202: Set V1 = 0x22
+            0x80, 0x15, // 0x204: Set V0 = V0 - V1 (normal) - 68
+            0x61, 0xE0, // 0x206: Set V1 = 0xE0
+            0x80, 0x15, // 0x208: Set V0 = V0 - V1 (overflow) - 88
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x68);
+        assert_eq!(emu.V[0x1], 0x22);
+        assert_eq!(emu.V[0xF], 0x01);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x88);
+        assert_eq!(emu.V[0x1], 0xE0);
+        assert_eq!(emu.V[0xF], 0x00);
+        assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
+    fn test_minus_register_yx() {
+        let rom: [u8; 10] = [
+            0x60, 0x8A, // 0x200: Set V0 = 0x8A
+            0x61, 0x22, // 0x202: Set V1 = 0x22
+            0x80, 0x17, // 0x204: Set V0 = V1 - V0 (overflow) - 98
+            0x61, 0xE0, // 0x206: Set V1 = 0xE0
+            0x80, 0x17, // 0x208: Set V0 = V1 - V0 (normal) - 48
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x98);
+        assert_eq!(emu.V[0x1], 0x22);
+        assert_eq!(emu.V[0xF], 0x00);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x48);
+        assert_eq!(emu.V[0x1], 0xE0);
+        assert_eq!(emu.V[0xF], 0x01);
+        assert_eq!(emu.PC, 0x20A);
     }
 }
