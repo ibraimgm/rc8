@@ -142,14 +142,27 @@ impl Emulator {
             0x2 => {
                 todo!("execute subroutine")
             }
+            // 3XNN - skip next if VX == NN
             0x3 => {
-                todo!("Skip if VX == NN")
+                let index = nibble_l(a) as usize;
+                if self.V[index] == b {
+                    self.PC += 2;
+                }
             }
+            // 4XNN - skip next if VX != NN
             0x4 => {
-                todo!("Skip id VX != NN")
+                let index = nibble_l(a) as usize;
+                if self.V[index] != b {
+                    self.PC += 2;
+                }
             }
+            // 5XY0 - skip next if VX == VY
             0x5 if nibble_l(b) == 0x0 => {
-                todo!("Skip if VX == VY")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                if self.V[x] == self.V[y] {
+                    self.PC += 2;
+                }
             }
             // 6XNN - Set VX to NN
             0x6 => {
@@ -192,8 +205,13 @@ impl Emulator {
             0x8 if nibble_l(b) == 0xE => {
                 todo!("set VX = VY << 1; set VF to shifted bit")
             }
+            // 9XY0 - skip next if VX != VY
             0x9 if nibble_l(b) == 0x0 => {
-                todo!("skip if VX != VY")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                if self.V[x] != self.V[y] {
+                    self.PC += 2;
+                }
             }
             0xA => {
                 todo!("store NNN into I")
@@ -250,6 +268,13 @@ impl Emulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn exec_cycles(emu: &mut Emulator, mut cycles: i32) {
+        while cycles > 0 {
+            emu.execute().unwrap();
+            cycles -= 1;
+        }
+    }
 
     #[test]
     fn test_nibble() {
@@ -399,5 +424,89 @@ mod tests {
         assert_eq!(emu.V[0x0], 0xAA);
         assert_eq!(emu.V[0xA], 0xAA);
         assert_eq!(emu.PC, 0x204);
+    }
+
+    #[test]
+    fn test_skip_if_eq_value() {
+        let rom: [u8; 8] = [
+            0x60, 0x01, // 0x200: SET V0 = 0x01
+            0x30, 0x01, // 0x202: SKIPEQL V0,0x01
+            0x61, 0x02, // 0x204: SET V1 = 0x02 (skipped)
+            0x62, 0x03, // 0x206: SET V2 = 0x03
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0x1], 0);
+        assert_eq!(emu.V[0x2], 0);
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x01);
+        assert_eq!(emu.V[0x1], 0x00);
+        assert_eq!(emu.V[0x2], 0x03);
+        assert_eq!(emu.PC, 0x208);
+    }
+
+    #[test]
+    fn test_skip_if_neq_value() {
+        let rom: [u8; 6] = [
+            0x40, 0x01, // 0x200: SKIPNEQ V0,0x01
+            0x60, 0x01, // 0x202: SET V0 = 0x01 (skipped)
+            0x61, 0x01, // 0x204: SET V1 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0x1], 0);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0x1], 0x01);
+        assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_skip_if_eq_register() {
+        let rom: [u8; 10] = [
+            0x60, 0x01, // 0x200: SET V0 = 0x01
+            0x61, 0x01, // 0x202: SET V1 = 0x01
+            0x50, 0x10, // 0x204: SKIPEQ V0,V1
+            0x62, 0x01, // 0x206: SET V2 = 0x01 (skipped)
+            0x63, 0x01, // 0x208: SET V3 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0x1], 0);
+        assert_eq!(emu.V[0x2], 0);
+        assert_eq!(emu.V[0x3], 0);
+
+        exec_cycles(&mut emu, 4);
+        assert_eq!(emu.V[0x0], 1);
+        assert_eq!(emu.V[0x1], 1);
+        assert_eq!(emu.V[0x2], 0);
+        assert_eq!(emu.V[0x3], 1);
+        assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
+    fn test_skip_if_neq_register() {
+        let rom: [u8; 8] = [
+            0x60, 0x01, // 0x200: SET V0 = 0x01
+            0x90, 0x10, // 0x202: SKIPNEQ V0,V1
+            0x61, 0x01, // 0x204: SET V1 = 0x01 (skipped)
+            0x62, 0x01, // 0x206: SET V2 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.V[0x0], 0);
+        assert_eq!(emu.V[0x1], 0);
+        assert_eq!(emu.V[0x2], 0);
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 1);
+        assert_eq!(emu.V[0x1], 0);
+        assert_eq!(emu.V[0x2], 1);
+        assert_eq!(emu.PC, 0x208);
     }
 }
