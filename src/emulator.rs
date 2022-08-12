@@ -302,8 +302,13 @@ impl Emulator {
             0xF if b == 0x29 => {
                 todo!("store on I the address of sprite of digit on VX")
             }
+            // FX33 - Store BCD of VX into I, I+I and I+2
             0xF if b == 0x33 => {
-                todo!("store BCD of VX in I, I+1 and I+2")
+                let x = nibble_l(a) as usize;
+                let i = self.I as usize;
+                self.memory[i] = self.V[x] / 100;
+                self.memory[i + 1] = self.V[x] / 10 % 10;
+                self.memory[i + 2] = self.V[x] % 100 % 10;
             }
             0xF if b == 0x55 => {
                 todo!("store values of V0 to VX starting into I, ends I at I + X + 1")
@@ -826,5 +831,32 @@ mod tests {
         assert_eq!(emu.V[0x3], 0x1E);
         assert_eq!(emu.V[0xF], 0x0);
         assert_eq!(emu.PC, 0x208);
+    }
+
+    #[test]
+    fn test_store_bcd() {
+        let rom: [u8; 10] = [
+            0xA2, 0x34, // 0x200: SET I = 0x234
+            0x60, 0x9A, // 0x202: SET V0 = 0x9A (154 decimal)
+            0xF0, 0x33, // 0x204: Convert V0 to BCD
+            0x61, 0x32, // 0x206: SET V1 = 0x32 (50 decimal)
+            0xF1, 0x33, // 0x208: Convert V1 to BCD
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.I, 0x234);
+        assert_eq!(emu.V[0x0], 0x9A);
+        assert_eq!(emu.memory[emu.I as usize], 0x01);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x05);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0x04);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.I, 0x234);
+        assert_eq!(emu.V[0x1], 0x32);
+        assert_eq!(emu.memory[emu.I as usize], 0x00);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x05);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0x00);
     }
 }
