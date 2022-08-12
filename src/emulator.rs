@@ -18,6 +18,7 @@ const MAX_ROM_SIZE: usize = ADDR_END - ADDR_START + 1;
 pub enum Error {
     ProgramTerminated,
     InvalidInstruction(u8, u8, u16),
+    InvalidJump(u8, u8, u16),
     IoError(std::io::Error),
 }
 
@@ -28,6 +29,11 @@ impl std::fmt::Display for Error {
             Error::InvalidInstruction(a, b, addr) => write!(
                 f,
                 "Invalid instruction at address {:#05X}: {:02X}{:02X}",
+                addr, a, b
+            ),
+            Error::InvalidJump(a, b, addr) => write!(
+                f,
+                "Invalid jump on instruction at address {:#05X}: {:02X}{:02X}",
                 addr, a, b
             ),
             Error::IoError(err) => write!(f, "IO Error: {}", err),
@@ -237,11 +243,18 @@ impl Emulator {
                     self.PC += 2;
                 }
             }
+            // ANNN - Set I = NNN
             0xA => {
-                todo!("store NNN into I")
+                self.I = nnn(a, b);
             }
+            // 0xBNNN - Jump doaddress NNN + V0
             0xB => {
-                todo!("jump to NNN + V0")
+                let addr = ((self.V[0x0] as u16) + nnn(a, b)) as usize;
+                if addr >= MEM_SIZE {
+                    self.PC -= 2;
+                    return Err(Error::InvalidJump(a, b, self.PC as u16));
+                }
+                self.PC = addr;
             }
             0xC => {
                 todo!("set Vx to a random number with mask NN")
@@ -255,20 +268,28 @@ impl Emulator {
             0xE if b == 0xA1 => {
                 todo!("skip next if key VX is not pressed")
             }
+            // FX07 - Store the DT value into VX
             0xF if b == 0x07 => {
-                todo!("set VX = DT")
+                let x = nibble_l(a) as usize;
+                self.V[x] = self.DT;
             }
             0xF if b == 0x0A => {
                 todo!("wait for key and store in VX")
             }
+            // FX15 - Store the VX value into DT
             0xF if b == 0x15 => {
-                todo!("set DT = VX")
+                let x = nibble_l(a) as usize;
+                self.DT = self.V[x];
             }
+            // FX18 - Store the VX value into ST
             0xF if b == 0x18 => {
-                todo!("set ST = VX")
+                let x = nibble_l(a) as usize;
+                self.ST = self.V[x];
             }
+            // FX1E - Set I = I + VX
             0xF if b == 0x1E => {
-                todo!("sey I = I + VX")
+                let x = nibble_l(a) as usize;
+                self.I = self.I.wrapping_add(self.V[x] as u16);
             }
             0xF if b == 0x29 => {
                 todo!("store on I the address of sprite of digit on VX")
@@ -649,5 +670,107 @@ mod tests {
         assert_eq!(emu.V[0x1], 0xE0);
         assert_eq!(emu.V[0xF], 0x01);
         assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
+    fn test_store_into_addr_register() {
+        let rom = [0xA1u8, 0x23];
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert_eq!(emu.I, 0x0);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.I, 0x123);
+        assert_eq!(emu.PC, 0x202);
+    }
+
+    #[test]
+    fn test_jump_addr_v0() {
+        let rom: [u8; 12] = [
+            0x60, 0x02, // 0x200: SET V0 = 0x02
+            0xB2, 0x04, // 0x202: JP 0x204 + 0x02 = 0x206
+            0x00, 0x00, // 0x204: filler
+            0x61, 0x01, // 0x206: SET V1 = 0x01
+            0x60, 0xFF, // 0x208: SET V0 = 0xFF
+            0xBF, 0xFF, // 0x20A: jump outside of memory bounds (error)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x02);
+        assert_eq!(emu.V[0x1], 0x01);
+        assert_eq!(emu.PC, 0x208);
+
+        emu.execute().unwrap();
+        assert_eq!(emu.V[0x0], 0xFF);
+
+        assert!(matches!(
+            emu.execute(),
+            Err(Error::InvalidJump(0xBF, 0xFF, 0x20A))
+        ));
+        assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
+    fn test_store_register_into_dt() {
+        let rom: [u8; 4] = [
+            0x61, 0xAE, // 0x200: SET V1 = 0xAE
+            0xF1, 0x15, // 0x202: SET DT = V1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x1], 0xAE);
+        assert_eq!(emu.DT, 0xAE);
+        assert_eq!(emu.PC, 0x204);
+    }
+
+    #[test]
+    fn test_store_dt_in_register() {
+        let rom: [u8; 6] = [
+            0x60, 0xAF, // 0x200: SET V0 = 0xAF
+            0xF0, 0x15, // 0x202: SET DT = V0
+            0xF1, 0x07, // 0x204: SET V1 = DT
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0xAF);
+        assert_eq!(emu.V[0x1], 0xAF);
+        assert_eq!(emu.DT, 0xAF);
+        assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_store_register_into_st() {
+        let rom: [u8; 4] = [
+            0x61, 0xAA, // 0x200: SET V1 = 0xAA
+            0xF1, 0x18, // 0x202: SET ST = V1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x1], 0xAA);
+        assert_eq!(emu.ST, 0xAA);
+        assert_eq!(emu.PC, 0x204);
+    }
+
+    #[test]
+    fn test_sum_register_addr() {
+        let rom: [u8; 6] = [
+            0x60, 0x11, // 0x200: SET V0 = 0x11
+            0xF0, 0x1E, // 0x202: SET I = I + V0
+            0xF0, 0x1E, // 0x204: SET I = I + V0
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x11);
+        assert_eq!(emu.I, 0x22);
+        assert_eq!(emu.PC, 0x206);
     }
 }
