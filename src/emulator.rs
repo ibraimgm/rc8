@@ -221,8 +221,12 @@ impl Emulator {
                 self.V[x] = result;
                 self.V[0xF] = (!carry) as u8;
             }
+            // 8XY6 - Set VX = VY >> 1; set VF to shifted bit
             0x8 if nibble_l(b) == 0x6 => {
-                todo!("set VX = VY >> 1; set VF to shifted bit")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                self.V[0xF] = self.V[y] & 1;
+                self.V[x] = self.V[y] >> 1;
             }
             // 8XY7 - Set VX = VY - VX, set VF to 0 if borrow
             0x8 if nibble_l(b) == 0x7 => {
@@ -232,8 +236,12 @@ impl Emulator {
                 self.V[x] = result;
                 self.V[0xF] = (!carry) as u8;
             }
+            // 8XYE - Set VX = VY << 1; set VF to shitfted bit
             0x8 if nibble_l(b) == 0xE => {
-                todo!("set VX = VY << 1; set VF to shifted bit")
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                self.V[0xF] = self.V[y] >> 7;
+                self.V[x] = self.V[y] << 1;
             }
             // 9XY0 - skip next if VX != VY
             0x9 if nibble_l(b) == 0x0 => {
@@ -772,5 +780,51 @@ mod tests {
         assert_eq!(emu.V[0x0], 0x11);
         assert_eq!(emu.I, 0x22);
         assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_shift_right() {
+        let rom: [u8; 8] = [
+            0x60, 0xF0, // 0x200: SET V0 = 0xF0
+            0x81, 0x06, // 0x202: SET V1 = V0 >> 1 (0x78, VF=0)
+            0x62, 0x0F, // 0x204: SET V2 = 0x0F
+            0x83, 0x26, // 0x206: SET V3 = V3 >> 1 (0x07, VF=1)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0xF0);
+        assert_eq!(emu.V[0x1], 0x78);
+        assert_eq!(emu.V[0xF], 0x0);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x2], 0x0F);
+        assert_eq!(emu.V[0x3], 0x07);
+        assert_eq!(emu.V[0xF], 0x1);
+        assert_eq!(emu.PC, 0x208);
+    }
+
+    #[test]
+    fn test_shift_left() {
+        let rom: [u8; 8] = [
+            0x60, 0xF0, // 0x200: SET V0 = 0xF0
+            0x81, 0x0E, // 0x202: SET V1 = V0 << 1 (0xE0, VF=1)
+            0x62, 0x0F, // 0x204: SET V2 = 0x0F
+            0x83, 0x2E, // 0x206: SET V3 = V3 << 1 (0x1E, VF=0)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0xF0);
+        assert_eq!(emu.V[0x1], 0xE0);
+        assert_eq!(emu.V[0xF], 0x1);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x2], 0x0F);
+        assert_eq!(emu.V[0x3], 0x1E);
+        assert_eq!(emu.V[0xF], 0x0);
+        assert_eq!(emu.PC, 0x208);
     }
 }
