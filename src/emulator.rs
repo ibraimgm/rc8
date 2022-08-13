@@ -374,11 +374,23 @@ impl Emulator {
                 self.memory[i + 1] = self.V[x] / 10 % 10;
                 self.memory[i + 2] = self.V[x] % 100 % 10;
             }
+            // FX55 - Store from V0 to VX, starting on I
+            // at the end, I will point to the next byte
             0xF if b == 0x55 => {
-                todo!("store values of V0 to VX starting into I, ends I at I + X + 1")
+                let start_addr = self.I as usize;
+                let end = (nibble_l(a) + 1) as usize;
+                let slice = &mut self.memory[start_addr..start_addr + end];
+                slice.copy_from_slice(&self.V[0..end]);
+                self.I += end as u16;
             }
+            // FX65 - Load from I into V0 -> VX
+            // at the end, I will point to the next byte
             0xF if b == 0x65 => {
-                todo!("read values into V0 to VX starting from I, ends I at I + X + 1")
+                let start_addr = self.I as usize;
+                let end = (nibble_l(a) + 1) as usize;
+                let slice = &mut self.V[0..end];
+                slice.copy_from_slice(&self.memory[start_addr..start_addr + end]);
+                self.I += end as u16;
             }
             _ => return Err(Error::InvalidInstruction(a, b, (self.PC - 2) as u16)),
         }
@@ -1046,5 +1058,70 @@ mod tests {
         assert_eq!(emu.V[0x0], 0xA);
         assert_eq!(emu.V[0x1], 0x1);
         assert_eq!(emu.PC, 0x204);
+    }
+
+    #[test]
+    fn test_bulk_save() {
+        let rom: [u8; 16] = [
+            0x60, 0x01, // 0x200: Set V0 = 0x01
+            0x61, 0x02, // 0x202: Set V1 = 0x02
+            0x62, 0x03, // 0x204: Set V2 = 0x03
+            0x63, 0x04, // 0x206: Set V3 = 0x04
+            0x64, 0x05, // 0x208: Set V4 = 0x05
+            0x65, 0x06, // 0x20A: Set V5 = 0x06
+            0xA2, 0x22, // 0x20C: Set I = 0x222
+            0xF5, 0x55, // 0x20E: Store V0->V5 starting at I
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 8);
+        assert_eq!(emu.memory[0x222], 0x01);
+        assert_eq!(emu.memory[0x223], 0x02);
+        assert_eq!(emu.memory[0x224], 0x03);
+        assert_eq!(emu.memory[0x225], 0x04);
+        assert_eq!(emu.memory[0x226], 0x05);
+        assert_eq!(emu.memory[0x227], 0x06);
+        assert_eq!(emu.I, 0x228);
+        assert_eq!(emu.PC, 0x210);
+    }
+
+    #[test]
+    fn test_bulk_load() {
+        let rom: [u8; 22] = [
+            0xA2, 0x04, // 0x200: Set I = 0x204
+            0x12, 0x14, // 0x202: JMP 0x214
+            0x01, 0x02, // 0x204: DATA
+            0x03, 0x04, // 0x206: DATA
+            0x05, 0x06, // 0x208: DATA
+            0x07, 0x08, // 0x20A: DATA
+            0x09, 0x0A, // 0x20C: DATA
+            0x0B, 0x0C, // 0x20E: DATA
+            0x0D, 0x0E, // 0x210: DATA
+            0x0F, 0x10, // 0x212: DATA
+            0xFF, 0x65, // 0x214: Load V0 -> VF starting at I
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x01);
+        assert_eq!(emu.V[0x1], 0x02);
+        assert_eq!(emu.V[0x2], 0x03);
+        assert_eq!(emu.V[0x3], 0x04);
+        assert_eq!(emu.V[0x4], 0x05);
+        assert_eq!(emu.V[0x5], 0x06);
+        assert_eq!(emu.V[0x6], 0x07);
+        assert_eq!(emu.V[0x7], 0x08);
+        assert_eq!(emu.V[0x8], 0x09);
+        assert_eq!(emu.V[0x9], 0x0A);
+        assert_eq!(emu.V[0xA], 0x0B);
+        assert_eq!(emu.V[0xB], 0x0C);
+        assert_eq!(emu.V[0xC], 0x0D);
+        assert_eq!(emu.V[0xD], 0x0E);
+        assert_eq!(emu.V[0xE], 0x0F);
+        assert_eq!(emu.V[0xF], 0x10);
+        assert_eq!(emu.I, 0x214);
+        assert_eq!(emu.PC, 0x216);
     }
 }
