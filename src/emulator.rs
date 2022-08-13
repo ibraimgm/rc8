@@ -109,6 +109,9 @@ struct Emulator {
 
     // sound timer
     pub ST: u8,
+
+    // which keys are pressed
+    keys: [bool; 16],
 }
 
 impl Emulator {
@@ -125,6 +128,7 @@ impl Emulator {
             sub_stack: Vec::with_capacity(MIN_SUB_STACK_SIZE),
             DT: 0,
             ST: 0,
+            keys: [false; 16],
         };
 
         // load the sprite data
@@ -145,6 +149,19 @@ impl Emulator {
         }
 
         Ok(emu)
+    }
+
+    pub fn set_key(&mut self, key: u8, state: bool) {
+        self.keys[(key & 0xF) as usize] = state;
+    }
+
+    fn get_pressed_key(&self) -> Option<u8> {
+        for (index, state) in self.keys.iter().enumerate() {
+            if *state {
+                return Some(index as u8);
+            }
+        }
+        None
     }
 
     /// Execute a single chip-8 CPU instruction.
@@ -298,19 +315,35 @@ impl Emulator {
             0xD => {
                 todo!("Draw sprite at address I, with coords VX, VY, with size N; set VF to 1 is any pixel is cleared")
             }
+            // EX9E - Skip next if the key on VX value is pressed
             0xE if b == 0x9E => {
-                todo!("skip next if key VX is pressed")
+                let x = nibble_l(a) as usize;
+                let key = (self.V[x] & 0xF) as usize;
+                if self.keys[key] {
+                    self.PC += 2;
+                }
             }
+            // EXA1 - Skip next if the key on VX value is NOT pressed
             0xE if b == 0xA1 => {
-                todo!("skip next if key VX is not pressed")
+                let x = nibble_l(a) as usize;
+                let key = (self.V[x] & 0xF) as usize;
+                if !self.keys[key] {
+                    self.PC += 2;
+                }
             }
             // FX07 - Store the DT value into VX
             0xF if b == 0x07 => {
                 let x = nibble_l(a) as usize;
                 self.V[x] = self.DT;
             }
+            // FX0A - Wait for a key press and store the digit on VX
             0xF if b == 0x0A => {
-                todo!("wait for key and store in VX")
+                let x = nibble_l(a) as usize;
+                if let Some(key) = self.get_pressed_key() {
+                    self.V[x] = key
+                } else {
+                    self.PC -= 2
+                }
             }
             // FX15 - Store the VX value into DT
             0xF if b == 0x15 => {
@@ -942,5 +975,76 @@ mod tests {
         assert_eq!(emu.memory[(emu.I + 3) as usize], 0x80);
         assert_eq!(emu.memory[(emu.I + 4) as usize], 0xF0);
         assert_eq!(emu.PC, 0x210);
+    }
+
+    #[test]
+    fn test_skip_key_pressed() {
+        let rom: [u8; 18] = [
+            0x60, 0x0E, // 0x200: Set V0 = 0x0E
+            0xE0, 0x9E, // 0x202: Skip if key on V0 is pressed ("E")
+            0x61, 0x01, // 0x204: Set V1 = 0x01 (skipped)
+            0x60, 0xEE, // 0x206: Set V0 = 0xEE
+            0xE0, 0x9E, // 0x208: Skip if key on V0 is pressed ("E")
+            0x62, 0x01, // 0x20A: Set V2 = 0x01 (skipped)
+            0x60, 0xFF, // 0x20C: Set V0 = 0xFF
+            0xE0, 0x9E, // 0x20E: Skip if key on V0 is pressed ("F")
+            0x63, 0x01, // 0x210: Set V3 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        emu.set_key(0xE, true);
+
+        exec_cycles(&mut emu, 7);
+        assert_eq!(emu.V[0x0], 0xFF);
+        assert_eq!(emu.V[0x1], 0x00);
+        assert_eq!(emu.V[0x2], 0x00);
+        assert_eq!(emu.V[0x3], 0x01);
+        assert_eq!(emu.PC, 0x212);
+    }
+
+    #[test]
+    fn test_skip_key_not_pressed() {
+        let rom: [u8; 20] = [
+            0x60, 0x0E, // 0x200: Set V0 = 0x0E
+            0xE0, 0xA1, // 0x202: Skip if key on V0 is not pressed ("E")
+            0x61, 0x01, // 0x204: Set V1 = 0x01
+            0x60, 0xEE, // 0x206: Set V0 = 0xEE
+            0xE0, 0xA1, // 0x208: Skip if key on V0 is not pressed ("E")
+            0x62, 0x01, // 0x20A: Set V2 = 0x01
+            0x60, 0xFF, // 0x20C: Set V0 = 0xFF
+            0xE0, 0xA1, // 0x20E: Skip if key on V0 is not pressed ("F")
+            0x63, 0x01, // 0x210: Set V3 = 0x01 (skipped)
+            0x64, 0x01, // 0x212: Set V4 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        emu.set_key(0xE, true);
+
+        exec_cycles(&mut emu, 9);
+        assert_eq!(emu.V[0x0], 0xFF);
+        assert_eq!(emu.V[0x1], 0x01);
+        assert_eq!(emu.V[0x2], 0x01);
+        assert_eq!(emu.V[0x3], 0x00);
+        assert_eq!(emu.V[0x4], 0x01);
+        assert_eq!(emu.PC, 0x214);
+    }
+
+    #[test]
+    fn test_wait_for_key_press() {
+        let rom: [u8; 4] = [
+            0xF0, 0x0A, // 0x200: Set V0 = <pressed key> (wait)
+            0x61, 0x01, // 0x202: Set V1 = 0x01
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 10);
+        assert_eq!(emu.PC, 0x200);
+
+        emu.set_key(0xA, true);
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0xA);
+        assert_eq!(emu.V[0x1], 0x1);
+        assert_eq!(emu.PC, 0x204);
     }
 }
