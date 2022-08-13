@@ -3,6 +3,29 @@ use std::io::Read;
 // memory size
 const MEM_SIZE: usize = 4096;
 
+// start of the sprite data
+const SPRITE_DATA_START: usize = 0;
+
+// built-in sprites
+const SPRITE_DATA: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
+
 // minimum subroutine stack size (to preallocate)
 const MIN_SUB_STACK_SIZE: usize = 12;
 
@@ -104,6 +127,11 @@ impl Emulator {
             ST: 0,
         };
 
+        // load the sprite data
+        let sprite_area = &mut emu.memory[SPRITE_DATA_START..SPRITE_DATA_START + SPRITE_DATA.len()];
+        sprite_area.copy_from_slice(&SPRITE_DATA[..]);
+
+        // load the rom itself
         let mut rom = rom.take((MAX_ROM_SIZE) as u64);
         let mut total_read = ADDR_START;
 
@@ -299,8 +327,11 @@ impl Emulator {
                 let x = nibble_l(a) as usize;
                 self.I = self.I.wrapping_add(self.V[x] as u16);
             }
+            // FX29 - Set the address of the sprite of digit on VX to I
             0xF if b == 0x29 => {
-                todo!("store on I the address of sprite of digit on VX")
+                let x = nibble_l(a) as usize;
+                let digit = self.V[x] & 0xF;
+                self.I = (digit * 5) as u16;
             }
             // FX33 - Store BCD of VX into I, I+I and I+2
             0xF if b == 0x33 => {
@@ -858,5 +889,58 @@ mod tests {
         assert_eq!(emu.memory[emu.I as usize], 0x00);
         assert_eq!(emu.memory[(emu.I + 1) as usize], 0x05);
         assert_eq!(emu.memory[(emu.I + 2) as usize], 0x00);
+    }
+
+    #[test]
+    fn test_load_sprite_address() {
+        let rom: [u8; 16] = [
+            0x60, 0x00, // 0x200: SET V0 = 0
+            0xF0, 0x29, // 0x202: SET I = sprite address of 0
+            0x60, 0x05, // 0x204: SET V0 = 5
+            0xF0, 0x29, // 0x206: SET I = sprite address of 5
+            0x60, 0x0F, // 0x208: SET V0 = F
+            0xF0, 0x29, // 0x20A: SET I = sprite address of F
+            0x60, 0x1E, // 0x20C: SET V0 = 1E
+            0xF0, 0x29, // 0x20E: SET I = sprite address of E
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x0);
+        assert_eq!(emu.I, 0x000);
+        assert_eq!(emu.memory[emu.I as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x90);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0x90);
+        assert_eq!(emu.memory[(emu.I + 3) as usize], 0x90);
+        assert_eq!(emu.memory[(emu.I + 4) as usize], 0xF0);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x5);
+        assert_eq!(emu.I, 0x019);
+        assert_eq!(emu.memory[emu.I as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x80);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 3) as usize], 0x10);
+        assert_eq!(emu.memory[(emu.I + 4) as usize], 0xF0);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0xF);
+        assert_eq!(emu.I, 0x04B);
+        assert_eq!(emu.memory[emu.I as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x80);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 3) as usize], 0x80);
+        assert_eq!(emu.memory[(emu.I + 4) as usize], 0x80);
+
+        exec_cycles(&mut emu, 2);
+        assert_eq!(emu.V[0x0], 0x1E);
+        assert_eq!(emu.I, 0x046);
+        assert_eq!(emu.memory[emu.I as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 1) as usize], 0x80);
+        assert_eq!(emu.memory[(emu.I + 2) as usize], 0xF0);
+        assert_eq!(emu.memory[(emu.I + 3) as usize], 0x80);
+        assert_eq!(emu.memory[(emu.I + 4) as usize], 0xF0);
+        assert_eq!(emu.PC, 0x210);
     }
 }
