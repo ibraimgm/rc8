@@ -1,5 +1,7 @@
 use std::io::Read;
 
+use nanorand::{BufferedRng, Rng, WyRand};
+
 // memory size
 const MEM_SIZE: usize = 4096;
 
@@ -112,6 +114,9 @@ struct Emulator {
 
     // which keys are pressed
     keys: [bool; 16],
+
+    // random number generator
+    rng: BufferedRng<WyRand, 8>,
 }
 
 impl Emulator {
@@ -129,6 +134,7 @@ impl Emulator {
             DT: 0,
             ST: 0,
             keys: [false; 16],
+            rng: BufferedRng::new(WyRand::new()),
         };
 
         // load the sprite data
@@ -309,8 +315,12 @@ impl Emulator {
                 }
                 self.PC = addr;
             }
+            // CXNN - Set VX to a random number with mask NN
             0xC => {
-                todo!("set Vx to a random number with mask NN")
+                let x = nibble_l(a) as usize;
+                let mut n = [0u8; 1];
+                self.rng.fill(&mut n);
+                self.V[x] = n[0] & b;
             }
             0xD => {
                 todo!("Draw sprite at address I, with coords VX, VY, with size N; set VF to 1 is any pixel is cleared")
@@ -1123,5 +1133,23 @@ mod tests {
         assert_eq!(emu.V[0xF], 0x10);
         assert_eq!(emu.I, 0x214);
         assert_eq!(emu.PC, 0x216);
+    }
+
+    #[test]
+    fn test_random() {
+        let rom: [u8; 6] = [
+            0xC0, 0x0F, // 0x200: Set V0 = <random> & 0x0F = 8E & 0F = 0E
+            0xC1, 0xF0, // 0x202: Set V1 = <random> & 0xF0 = A5 & F0 = A0
+            0xC2, 0x3C, // 0x204: Set V2 = <random> & 0x3C = 59 & 3C = 18
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        emu.rng = BufferedRng::new(WyRand::new_seed(0));
+
+        exec_cycles(&mut emu, 3);
+        assert_eq!(emu.V[0x0], 0x0E);
+        assert_eq!(emu.V[0x1], 0xA0);
+        assert_eq!(emu.V[0x2], 0x18);
+        assert_eq!(emu.PC, 0x206);
     }
 }
