@@ -44,6 +44,8 @@ pub enum Error {
     ProgramTerminated,
     InvalidInstruction(u8, u8, u16),
     InvalidJump(u8, u8, u16),
+    InvalidReturnInstruction(u16),
+    MachineInstructionReached(u16),
     IoError(std::io::Error),
 }
 
@@ -61,6 +63,12 @@ impl std::fmt::Display for Error {
                 "Invalid jump on instruction at address {:#05X}: {:02X}{:02X}",
                 addr, a, b
             ),
+            Error::InvalidReturnInstruction(addr) => {
+                write!(f, "Invalid return  instruction at address {:#05X}", addr)
+            }
+            Error::MachineInstructionReached(addr) => {
+                write!(f, "Machine subroutine at address {:#05X}", addr)
+            }
             Error::IoError(err) => write!(f, "IO Error: {}", err),
         }
     }
@@ -187,21 +195,32 @@ impl Emulator {
 
         // choose the instruction to run
         match nibble_h(a) {
+            // 00E0	- Clear the screen
             0x0 if a == 0x00 && b == 0xE0 => {
                 self.screen.fill(0);
             }
+            // 00EE	- Return from a subroutine
             0x0 if a == 0x00 && b == 0xEE => {
-                todo!("return from subroutine");
+                if self.sub_stack.is_empty() {
+                    return Err(Error::InvalidReturnInstruction((self.PC - 2) as u16));
+                }
+
+                self.PC = self.sub_stack.pop().unwrap();
             }
+            // 0NNN - Execute machine instruction
+            // it is ignored on emulators, here we return an error
+            // just to track it
             0x0 => {
-                todo!("execute machine subroutine");
+                return Err(Error::MachineInstructionReached(self.PC as u16));
             }
             // 1NNN - jump to address NNN
             0x1 => {
                 self.PC = nnn(a, b) as usize;
             }
+            // 2NNN	- Execute subroutine starting at address NNN
             0x2 => {
-                todo!("execute subroutine")
+                self.sub_stack.push(self.PC);
+                self.PC = nnn(a, b) as usize;
             }
             // 3XNN - skip next if VX == NN
             0x3 => {
@@ -1314,5 +1333,39 @@ mod tests {
         for value in emu.screen.iter() {
             assert_eq!(*value, 0x0)
         }
+    }
+
+    #[test]
+    fn test_subroutine() {
+        let rom: [u8; 18] = [
+            0x12, 0x0A, // 0x200: Jump to 0x20A
+            0x70, 0x01, // 0x202: Set V0 = V0 + 1
+            0x71, 0x02, // 0x204: Set V1 = V1 + 2
+            0x72, 0x03, // 0x206: Set V2 = V2 + 3
+            0x00, 0xEE, // 0x208: RETURN
+            0x22, 0x02, // 0x20A: CALL 0x202
+            0x30, 0x03, // 0x20C: Skip next if VX == 3
+            0x12, 0x0A, // 0x20E: Jump to 0x20A
+            0x63, 0x01, // 0x210: Set V3 = 1
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 22);
+        assert_eq!(emu.V[0x0], 0x03);
+        assert_eq!(emu.V[0x1], 0x06);
+        assert_eq!(emu.V[0x2], 0x09);
+        assert_eq!(emu.V[0x3], 0x01);
+        assert_eq!(emu.PC, 0x212);
+    }
+
+    #[test]
+    fn test_bad_return() {
+        let rom = [0x00u8, 0xEE];
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        assert!(matches!(
+            emu.execute(),
+            Err(Error::InvalidReturnInstruction(0x200))
+        ));
     }
 }
