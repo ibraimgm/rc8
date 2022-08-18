@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{cmp::Ordering, io::Read};
 
 use nanorand::{BufferedRng, Rng, WyRand};
 
@@ -117,6 +117,9 @@ struct Emulator {
 
     // random number generator
     rng: BufferedRng<WyRand, 8>,
+
+    // screen - 64x32
+    screen: [u64; 32],
 }
 
 impl Emulator {
@@ -135,6 +138,7 @@ impl Emulator {
             ST: 0,
             keys: [false; 16],
             rng: BufferedRng::new(WyRand::new()),
+            screen: [0u64; 32],
         };
 
         // load the sprite data
@@ -184,7 +188,7 @@ impl Emulator {
         // choose the instruction to run
         match nibble_h(a) {
             0x0 if a == 0x00 && b == 0xE0 => {
-                todo!("clear screen");
+                self.screen.fill(0);
             }
             0x0 if a == 0x00 && b == 0xEE => {
                 todo!("return from subroutine");
@@ -306,7 +310,7 @@ impl Emulator {
             0xA => {
                 self.I = nnn(a, b);
             }
-            // 0xBNNN - Jump doaddress NNN + V0
+            // 0xBNNN - Jump to address NNN + V0
             0xB => {
                 let addr = ((self.V[0x0] as u16) + nnn(a, b)) as usize;
                 if addr >= MEM_SIZE {
@@ -322,8 +326,39 @@ impl Emulator {
                 self.rng.fill(&mut n);
                 self.V[x] = n[0] & b;
             }
+            // DXYN - Draw sprite at address I, on VX,VY and size N
+            // set VF to 1 if any pixel is cleared
             0xD => {
-                todo!("Draw sprite at address I, with coords VX, VY, with size N; set VF to 1 is any pixel is cleared")
+                const LIMIT: usize = 64 - 8; // 64 bits minus 1 byte from the sprite
+
+                let x = nibble_l(a) as usize;
+                let y = nibble_h(b) as usize;
+                let n = nibble_l(b) as usize;
+
+                let x = (self.V[x] % 0x40) as usize;
+                let y = (self.V[y] % 0x20) as usize;
+
+                for offset in 0..n {
+                    let row = y + offset;
+                    if row >= self.screen.len() {
+                        break;
+                    }
+
+                    let location = (self.I as usize) + offset;
+                    let to_draw = self.memory[location] as u64;
+
+                    let to_draw = match x.cmp(&LIMIT) {
+                        Ordering::Greater => to_draw >> (x - LIMIT),
+                        Ordering::Less => to_draw << (LIMIT - x),
+                        Ordering::Equal => to_draw,
+                    };
+
+                    let result = self.screen[row] ^ to_draw;
+                    if self.screen[row] != (self.screen[row] & result) {
+                        self.V[0xF] = 0x01;
+                    }
+                    self.screen[row] = result
+                }
             }
             // EX9E - Skip next if the key on VX value is pressed
             0xE if b == 0x9E => {
@@ -1151,5 +1186,133 @@ mod tests {
         assert_eq!(emu.V[0x1], 0xA0);
         assert_eq!(emu.V[0x2], 0x18);
         assert_eq!(emu.PC, 0x206);
+    }
+
+    #[test]
+    fn test_draw() {
+        let rom: [u8; 40] = [
+            0x60, 0x04, // 0x200: Set V0 = 4
+            0x61, 0x00, // 0x202: Set V1 = 0
+            0x62, 0x0A, // 0x204: Set V2 = 0xA
+            0xF2, 0x29, // 0x206: Set I to V2 ("A")
+            0xD0, 0x15, // 0x208: Draw[VX, VY] = "A"
+            //
+            0x60, 0x09, // 0x20A: Set V0 = 9
+            0x61, 0x01, // 0x20C: Set V1 = 1
+            0x62, 0x0B, // 0x20E: Set V2 = 0xB
+            0xF2, 0x29, // 0x210: Set I to V2 ("B")
+            0xD0, 0x15, // 0x212: Draw[VX, VY] = "B"
+            //
+            0x60, 0x3C, // 0x214: Set V0 = 60
+            0x61, 0x0A, // 0x216: Set V1 = 10
+            0x62, 0x09, // 0x218: Set V2 = 0x9
+            0xF2, 0x29, // 0x21A: Set I to V2 ("9")
+            0xD0, 0x15, // 0x21C: Draw[VX, VY] = "9"
+            //
+            0x60, 0x3E, // 0x21E: Set V0 = 62
+            0x61, 0x1D, // 0x220: Set V1 = 29
+            0x62, 0x0E, // 0x222: Set V2 = 0xE
+            0xF2, 0x29, // 0x224: Set I to V2 ("E")
+            0xD0, 0x15, // 0x226: Draw[VX, VY] = "E"
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 20);
+        assert_eq!(emu.V[0x0], 0x3E);
+        assert_eq!(emu.V[0x1], 0x1D);
+        assert_eq!(emu.V[0x2], 0x0E);
+        assert_eq!(emu.V[0xF], 0x00);
+        assert_eq!(emu.PC, 0x228);
+
+        assert_eq!(emu.screen[0], 0xF00000000000000);
+        assert_eq!(emu.screen[1], 0x970000000000000);
+        assert_eq!(emu.screen[2], 0xF48000000000000);
+        assert_eq!(emu.screen[3], 0x970000000000000);
+        assert_eq!(emu.screen[4], 0x948000000000000);
+        assert_eq!(emu.screen[5], 0x070000000000000);
+        assert_eq!(emu.screen[6], 0x000000000000000);
+        assert_eq!(emu.screen[7], 0x000000000000000);
+        assert_eq!(emu.screen[8], 0x000000000000000);
+        assert_eq!(emu.screen[9], 0x000000000000000);
+        assert_eq!(emu.screen[10], 0x00000000000000F);
+        assert_eq!(emu.screen[11], 0x000000000000009);
+        assert_eq!(emu.screen[12], 0x00000000000000F);
+        assert_eq!(emu.screen[13], 0x000000000000001);
+        assert_eq!(emu.screen[14], 0x00000000000000F);
+        assert_eq!(emu.screen[15], 0x000000000000000);
+        assert_eq!(emu.screen[16], 0x000000000000000);
+        assert_eq!(emu.screen[17], 0x000000000000000);
+        assert_eq!(emu.screen[18], 0x000000000000000);
+        assert_eq!(emu.screen[19], 0x000000000000000);
+        assert_eq!(emu.screen[20], 0x000000000000000);
+        assert_eq!(emu.screen[21], 0x000000000000000);
+        assert_eq!(emu.screen[22], 0x000000000000000);
+        assert_eq!(emu.screen[23], 0x000000000000000);
+        assert_eq!(emu.screen[24], 0x000000000000000);
+        assert_eq!(emu.screen[25], 0x000000000000000);
+        assert_eq!(emu.screen[26], 0x000000000000000);
+        assert_eq!(emu.screen[27], 0x000000000000000);
+        assert_eq!(emu.screen[28], 0x000000000000000);
+        assert_eq!(emu.screen[29], 0x000000000000003);
+        assert_eq!(emu.screen[30], 0x000000000000002);
+        assert_eq!(emu.screen[31], 0x000000000000003);
+    }
+
+    #[test]
+    fn test_draw_xor() {
+        let rom: [u8; 16] = [
+            0x60, 0x0C, // 0x200: Set V0 = 12
+            0x61, 0x00, // 0x202: Set V1 = 0
+            0x62, 0x09, // 0x204: Set V2 = 0x9
+            0xF2, 0x29, // 0x206: Set I to V2 ("9")
+            0xD0, 0x15, // 0x208: Draw[V0, V1] = "9"
+            //
+            0x62, 0x08, // 0x20A: Set V2 = 0x8
+            0xF2, 0x29, // 0x20C: Set I to V2 ("8")
+            0xD0, 0x15, // 0x20E: Draw[V0, V1] = "8"
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 8);
+        assert_eq!(emu.V[0x0], 0x0C);
+        assert_eq!(emu.V[0x1], 0x00);
+        assert_eq!(emu.V[0x2], 0x08);
+        assert_eq!(emu.V[0xF], 0x01);
+        assert_eq!(emu.PC, 0x210);
+
+        for (row, value) in emu.screen.iter().enumerate() {
+            if row == 3 {
+                assert_eq!(*value, 0x8000000000000)
+            } else {
+                assert_eq!(*value, 0x0)
+            }
+        }
+    }
+
+    #[test]
+    fn test_clear_screen() {
+        let rom: [u8; 12] = [
+            0x60, 0x0C, // 0x200: Set V0 = 12
+            0x61, 0x00, // 0x202: Set V1 = 0
+            0x62, 0x09, // 0x204: Set V2 = 0x9
+            0xF2, 0x29, // 0x206: Set I to V2 ("9")
+            0xD0, 0x15, // 0x208: Draw[V0, V1] = "9"
+            0x00, 0xE0, // 0x20A: Clear Screen
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+
+        exec_cycles(&mut emu, 6);
+        assert_eq!(emu.V[0x0], 0x0C);
+        assert_eq!(emu.V[0x1], 0x00);
+        assert_eq!(emu.V[0x2], 0x09);
+        assert_eq!(emu.V[0xF], 0x00);
+        assert_eq!(emu.PC, 0x20C);
+
+        for value in emu.screen.iter() {
+            assert_eq!(*value, 0x0)
+        }
     }
 }
