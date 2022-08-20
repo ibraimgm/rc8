@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, io::Read};
 
 use nanorand::{BufferedRng, Rng, WyRand};
+use thiserror::Error;
 
 // memory size
 const MEM_SIZE: usize = 4096;
@@ -39,47 +40,22 @@ const ADDR_END: usize = 0xE8F;
 // rom size
 const MAX_ROM_SIZE: usize = ADDR_END - ADDR_START + 1;
 
-#[derive(Debug)]
-pub enum Error {
-    ProgramTerminated,
-    InvalidInstruction(u8, u8, u16),
+#[derive(Error, Debug)]
+pub enum EmulatorError {
+    #[error("invalid return at address {0:#05X}")]
+    InvalidReturn(u16),
+
+    #[error("machine subroutine call at address {0:#05X}")]
+    MachineSubroutine(u16),
+
+    #[error("invalid jump at address {2:#05X}: {0:02X}{1:02X}")]
     InvalidJump(u8, u8, u16),
-    InvalidReturnInstruction(u16),
-    MachineInstructionReached(u16),
-    IoError(std::io::Error),
-}
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            Error::ProgramTerminated => write!(f, "Program reached last instruction"),
-            Error::InvalidInstruction(a, b, addr) => write!(
-                f,
-                "Invalid instruction at address {:#05X}: {:02X}{:02X}",
-                addr, a, b
-            ),
-            Error::InvalidJump(a, b, addr) => write!(
-                f,
-                "Invalid jump on instruction at address {:#05X}: {:02X}{:02X}",
-                addr, a, b
-            ),
-            Error::InvalidReturnInstruction(addr) => {
-                write!(f, "Invalid return  instruction at address {:#05X}", addr)
-            }
-            Error::MachineInstructionReached(addr) => {
-                write!(f, "Machine subroutine at address {:#05X}", addr)
-            }
-            Error::IoError(err) => write!(f, "IO Error: {}", err),
-        }
-    }
-}
+    #[error("invalid opcode at address {2:#05X}: {0:02X}{1:02X}")]
+    InvalidOpcode(u8, u8, u16),
 
-impl std::error::Error for Error {}
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::IoError(err)
-    }
+    #[error("could not load rom")]
+    Io(#[from] std::io::Error),
 }
 
 #[inline(always)]
@@ -132,7 +108,7 @@ struct Emulator {
 
 impl Emulator {
     /// Load a chip-8 rom, up to the maximum allowed rom size.
-    pub fn load_rom<T>(rom: T) -> Result<Self, Error>
+    pub fn load_rom<T>(rom: T) -> Result<Self, EmulatorError>
     where
         T: Read,
     {
@@ -183,11 +159,7 @@ impl Emulator {
     }
 
     /// Execute a single chip-8 CPU instruction.
-    pub fn execute(&mut self) -> Result<(), Error> {
-        if self.PC > ADDR_END {
-            return Err(Error::ProgramTerminated);
-        }
-
+    pub fn execute(&mut self) -> Result<(), EmulatorError> {
         // read a command
         let a = self.memory[self.PC];
         let b = self.memory[self.PC + 1];
@@ -202,7 +174,7 @@ impl Emulator {
             // 00EE	- Return from a subroutine
             0x0 if a == 0x00 && b == 0xEE => {
                 if self.sub_stack.is_empty() {
-                    return Err(Error::InvalidReturnInstruction((self.PC - 2) as u16));
+                    return Err(EmulatorError::InvalidReturn((self.PC - 2) as u16));
                 }
 
                 self.PC = self.sub_stack.pop().unwrap();
@@ -211,7 +183,7 @@ impl Emulator {
             // it is ignored on emulators, here we return an error
             // just to track it
             0x0 => {
-                return Err(Error::MachineInstructionReached(self.PC as u16));
+                return Err(EmulatorError::MachineSubroutine(self.PC as u16));
             }
             // 1NNN - jump to address NNN
             0x1 => {
@@ -334,7 +306,7 @@ impl Emulator {
                 let addr = ((self.V[0x0] as u16) + nnn(a, b)) as usize;
                 if addr >= MEM_SIZE {
                     self.PC -= 2;
-                    return Err(Error::InvalidJump(a, b, self.PC as u16));
+                    return Err(EmulatorError::InvalidJump(a, b, self.PC as u16));
                 }
                 self.PC = addr;
             }
@@ -456,7 +428,7 @@ impl Emulator {
                 slice.copy_from_slice(&self.memory[start_addr..start_addr + end]);
                 self.I += end as u16;
             }
-            _ => return Err(Error::InvalidInstruction(a, b, (self.PC - 2) as u16)),
+            _ => return Err(EmulatorError::InvalidOpcode(a, b, (self.PC - 2) as u16)),
         }
 
         Ok(())
@@ -859,7 +831,7 @@ mod tests {
 
         assert!(matches!(
             emu.execute(),
-            Err(Error::InvalidJump(0xBF, 0xFF, 0x20A))
+            Err(EmulatorError::InvalidJump(0xBF, 0xFF, 0x20A))
         ));
         assert_eq!(emu.PC, 0x20A);
     }
@@ -1365,7 +1337,7 @@ mod tests {
         let mut emu = Emulator::load_rom(&rom[..]).unwrap();
         assert!(matches!(
             emu.execute(),
-            Err(Error::InvalidReturnInstruction(0x200))
+            Err(EmulatorError::InvalidReturn(0x200))
         ));
     }
 }

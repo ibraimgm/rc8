@@ -1,28 +1,59 @@
 use std::time::Instant;
 
+use anyhow::Context;
 use sdl2::{
     event::Event,
     keyboard::Keycode,
     pixels::Color,
     rect::{Point, Rect},
 };
+use thiserror::Error;
 
 mod emulator;
 
-fn main() {
+#[derive(Error, Debug)]
+enum AppError {
+    #[error("SDL error: {0}")]
+    Sdl(String),
+}
+
+impl From<String> for AppError {
+    fn from(s: String) -> Self {
+        AppError::Sdl(s)
+    }
+}
+
+fn main() -> Result<(), anyhow::Error> {
     const CYCLE_DELAY: u128 = 1_000_000 / 540;
     const TIMER_DELAY: u128 = 1_000_000 / 60;
 
-    let sdl_context = sdl2::init().unwrap();
-    let sdl_video = sdl_context.video().unwrap();
+    // initialize SDL context and subsystems
+    let sdl_context = sdl2::init()
+        .map_err(AppError::from)
+        .context("failed to initialize SDL context")?;
+    let sdl_video = sdl_context
+        .video()
+        .map_err(AppError::from)
+        .context("failed to initialize video subsystem")?;
+
+    // build the window
     let window = sdl_video
         .window("RC8", 640, 320)
         .position_centered()
         .build()
-        .unwrap();
-    let mut canvas = window.into_canvas().build().unwrap();
+        .context("error creating window")?;
 
-    let mut event_pump = sdl_context.event_pump().unwrap();
+    // get the drawing canvas
+    let mut canvas = window
+        .into_canvas()
+        .build()
+        .context("error creating window canvas")?;
+
+    // get the event pump
+    let mut event_pump = sdl_context
+        .event_pump()
+        .map_err(AppError::from)
+        .context("error obtaining the event pump")?;
 
     let mut running = true;
     let mut previous = Instant::now();
@@ -70,4 +101,6 @@ fn main() {
             .unwrap();
         canvas.present();
     }
+
+    Ok(())
 }
