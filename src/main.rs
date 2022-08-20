@@ -1,15 +1,19 @@
 use std::time::Instant;
 
 use anyhow::Context;
-use sdl2::{
-    event::Event,
-    keyboard::Keycode,
-    pixels::Color,
-    rect::{Point, Rect},
-};
+use clap::Parser;
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
 use thiserror::Error;
 
 mod emulator;
+
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+struct Cli {
+    /// ROM file to load
+    #[clap(value_parser)]
+    filename: String,
+}
 
 #[derive(Error, Debug)]
 enum AppError {
@@ -26,6 +30,16 @@ impl From<String> for AppError {
 fn main() -> Result<(), anyhow::Error> {
     const CYCLE_DELAY: u128 = 1_000_000 / 540;
     const TIMER_DELAY: u128 = 1_000_000 / 60;
+    const ZOOM: usize = 10;
+
+    // parse command-line arguments
+    let cli = Cli::parse();
+
+    // lod the rom and build the emulator
+    let rom = std::fs::File::open(&cli.filename)
+        .with_context(|| format!("error opening rom file: {}", &cli.filename))?;
+
+    let mut emu = emulator::Emulator::load_rom(rom).context("error loading rom")?;
 
     // initialize SDL context and subsystems
     let sdl_context = sdl2::init()
@@ -38,7 +52,11 @@ fn main() -> Result<(), anyhow::Error> {
 
     // build the window
     let window = sdl_video
-        .window("RC8", 640, 320)
+        .window(
+            "RC8",
+            (emulator::DISPLAY_WIDTH * ZOOM) as u32,
+            (emulator::DISPLAY_HEIGHT * ZOOM) as u32,
+        )
         .position_centered()
         .build()
         .context("error creating window")?;
@@ -81,13 +99,13 @@ fn main() -> Result<(), anyhow::Error> {
 
         // run cpu
         while cpu_delta >= CYCLE_DELAY {
-            println!("cpu!");
+            emu.execute()?;
             cpu_delta -= CYCLE_DELAY;
         }
 
         // update timers
         while timer_delta >= TIMER_DELAY {
-            println!("timer!");
+            emu.decrease_timers();
             timer_delta -= TIMER_DELAY;
         }
 
@@ -96,9 +114,22 @@ fn main() -> Result<(), anyhow::Error> {
         canvas.clear();
 
         canvas.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
-        canvas
-            .fill_rect(Rect::from_center(Point::new(320, 160), 10, 10))
-            .unwrap();
+        for x in 0..emulator::DISPLAY_WIDTH {
+            for y in 0..emulator::DISPLAY_HEIGHT {
+                if emu.get_pixel(x, y) {
+                    let rect = Rect::new(
+                        (x * ZOOM) as i32,
+                        (y * ZOOM) as i32,
+                        ZOOM as u32,
+                        ZOOM as u32,
+                    );
+                    canvas
+                        .fill_rect(rect)
+                        .map_err(AppError::from)
+                        .context("error drawing to canvas")?;
+                }
+            }
+        }
         canvas.present();
     }
 

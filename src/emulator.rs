@@ -3,6 +3,9 @@ use std::{cmp::Ordering, io::Read};
 use nanorand::{BufferedRng, Rng, WyRand};
 use thiserror::Error;
 
+pub const DISPLAY_WIDTH: usize = 64;
+pub const DISPLAY_HEIGHT: usize = 32;
+
 // memory size
 const MEM_SIZE: usize = 4096;
 
@@ -74,7 +77,7 @@ fn nnn(a: u8, b: u8) -> u16 {
 }
 
 #[allow(non_snake_case)]
-struct Emulator {
+pub struct Emulator {
     // program counter
     pub PC: usize,
 
@@ -145,6 +148,7 @@ impl Emulator {
         Ok(emu)
     }
 
+    /// Set the state of a key (pressed/released).
     pub fn set_key(&mut self, key: u8, state: bool) {
         self.keys[(key & 0xF) as usize] = state;
     }
@@ -156,6 +160,21 @@ impl Emulator {
             }
         }
         None
+    }
+
+    /// Decrease DT and ST, when the value is geater than 0.
+    pub fn decrease_timers(&mut self) {
+        self.DT = self.DT.checked_sub(1).unwrap_or(self.DT);
+        self.ST = self.ST.checked_sub(1).unwrap_or(self.ST);
+    }
+
+    /// Returns wether the pixel at location (x, y) is set
+    pub fn get_pixel(&self, x: usize, y: usize) -> bool {
+        let x = x % DISPLAY_WIDTH;
+        let y = y % DISPLAY_HEIGHT;
+
+        let mask = 1 << (DISPLAY_WIDTH - x - 1);
+        (self.screen[y] & mask) > 0
     }
 
     /// Execute a single chip-8 CPU instruction.
