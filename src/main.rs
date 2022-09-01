@@ -2,10 +2,13 @@ use std::time::Instant;
 
 use anyhow::Context;
 use clap::Parser;
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
+use sdl2::{event::Event, pixels::Color, rect::Rect};
 use thiserror::Error;
 
 mod emulator;
+mod keymap;
+
+use keymap::{Action, Keymap};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -77,6 +80,7 @@ fn main() -> Result<(), anyhow::Error> {
     let mut previous = Instant::now();
     let mut timer_delta = 0;
     let mut cpu_delta = 0;
+    let keymap = Keymap::Chip8;
 
     while running {
         let now = Instant::now();
@@ -87,13 +91,14 @@ fn main() -> Result<(), anyhow::Error> {
 
         // process input
         for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => running = false,
-                _ => (),
+            match keymap.translate_action(&event) {
+                Some(Action::EmulateKeyState(key, state)) => emu.set_key(key, state),
+                Some(Action::Quit) => running = false,
+                None => {
+                    if let Event::Quit { .. } = event {
+                        running = false;
+                    }
+                }
             }
         }
 

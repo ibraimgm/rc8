@@ -149,8 +149,8 @@ impl Emulator {
     }
 
     /// Set the state of a key (pressed/released).
-    pub fn set_key(&mut self, key: u8, state: bool) {
-        self.keys[(key & 0xF) as usize] = state;
+    pub fn set_key(&mut self, key: usize, state: bool) {
+        self.keys[key & 0xF] = state;
     }
 
     fn get_pressed_key(&self) -> Option<u8> {
