@@ -107,6 +107,11 @@ pub struct Emulator {
 
     // screen - 64x32
     screen: [u64; 32],
+
+    // if a vblank interrupt happened
+    // the draw command waits for this, to avoid
+    // tearing on the sprites
+    vblank_interrupt: bool,
 }
 
 impl Emulator {
@@ -126,6 +131,7 @@ impl Emulator {
             keys: [false; 16],
             rng: BufferedRng::new(WyRand::new()),
             screen: [0u64; 32],
+            vblank_interrupt: false,
         };
 
         // load the sprite data
@@ -160,6 +166,11 @@ impl Emulator {
             }
         }
         None
+    }
+
+    // registers that a vblank interrupt happened
+    pub fn vblank(&mut self) {
+        self.vblank_interrupt = true;
     }
 
     /// Decrease DT and ST, when the value is geater than 0.
@@ -339,6 +350,12 @@ impl Emulator {
             // DXYN - Draw sprite at address I, on VX,VY and size N
             // set VF to 1 if any pixel is cleared
             0xD => {
+                if !self.vblank_interrupt {
+                    self.PC -= 2;
+                    return Ok(());
+                }
+                self.vblank_interrupt = false;
+
                 const LIMIT: usize = 64 - 8; // 64 bits minus 1 byte from the sprite
 
                 let x = nibble_l(a) as usize;
@@ -460,6 +477,7 @@ mod tests {
 
     fn exec_cycles(emu: &mut Emulator, mut cycles: i32) {
         while cycles > 0 {
+            emu.vblank();
             emu.execute().unwrap();
             cycles -= 1;
         }

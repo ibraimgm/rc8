@@ -33,6 +33,7 @@ impl From<String> for AppError {
 fn main() -> Result<(), anyhow::Error> {
     const CYCLE_DELAY: u128 = 1_000_000 / 540;
     const TIMER_DELAY: u128 = 1_000_000 / 60;
+    const VBLANK_DELAY: u128 = 1_000_000 / 60;
     const ZOOM: usize = 10;
 
     // parse command-line arguments
@@ -80,6 +81,7 @@ fn main() -> Result<(), anyhow::Error> {
     let mut previous = Instant::now();
     let mut timer_delta = 0;
     let mut cpu_delta = 0;
+    let mut vblank_delta = 0;
     let keymap = Keymap::Chip8;
 
     while running {
@@ -87,6 +89,7 @@ fn main() -> Result<(), anyhow::Error> {
         let elapsed = previous.elapsed().as_micros();
         timer_delta += elapsed;
         cpu_delta += elapsed;
+        vblank_delta += elapsed;
         previous = now;
 
         // process input
@@ -100,6 +103,13 @@ fn main() -> Result<(), anyhow::Error> {
                     }
                 }
             }
+        }
+
+        // vblank signal
+        // just one trigger is enought
+        if vblank_delta >= VBLANK_DELAY {
+            emu.vblank();
+            vblank_delta -= VBLANK_DELAY;
         }
 
         // run cpu

@@ -12,8 +12,7 @@ It is commonly used as the "hello world" for emulator enthusiasts. If you're cur
 - [X] Proper, "clipped" drawing.
 - [ ] 100% pass on the [CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite).
   - Missing `VF` clear quirk on bitwise operations.
-  - Proper VBlank interrupt simulation.
-  - Waitingfor release on `FX0A` instruction.
+  - Waiting for release on `FX0A` instruction.
 - [ ] Sound (buzzer) support.
 - [ ] Option to set background/foreground.
 - [ ] Option to change the display size.
