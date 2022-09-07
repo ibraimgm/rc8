@@ -112,6 +112,9 @@ pub struct Emulator {
     // the draw command waits for this, to avoid
     // tearing on the sprites
     vblank_interrupt: bool,
+
+    // last pressed key
+    last_pressed_key: Option<u8>,
 }
 
 impl Emulator {
@@ -132,6 +135,7 @@ impl Emulator {
             rng: BufferedRng::new(WyRand::new()),
             screen: [0u64; 32],
             vblank_interrupt: false,
+            last_pressed_key: None,
         };
 
         // load the sprite data
@@ -155,17 +159,11 @@ impl Emulator {
     }
 
     /// Set the state of a key (pressed/released).
-    pub fn set_key(&mut self, key: usize, state: bool) {
-        self.keys[key & 0xF] = state;
-    }
-
-    fn get_pressed_key(&self) -> Option<u8> {
-        for (index, state) in self.keys.iter().enumerate() {
-            if *state {
-                return Some(index as u8);
-            }
+    pub fn set_key(&mut self, key: usize, pressed: bool) {
+        if self.keys[key & 0xF] && !pressed {
+            self.last_pressed_key = Some(key as u8)
         }
-        None
+        self.keys[key & 0xF] = pressed;
     }
 
     // registers that a vblank interrupt happened
@@ -416,7 +414,7 @@ impl Emulator {
             // FX0A - Wait for a key press and store the digit on VX
             0xF if b == 0x0A => {
                 let x = nibble_l(a) as usize;
-                if let Some(key) = self.get_pressed_key() {
+                if let Some(key) = self.last_pressed_key {
                     self.V[x] = key
                 } else {
                     self.PC -= 2
@@ -472,6 +470,7 @@ impl Emulator {
             _ => return Err(EmulatorError::InvalidOpcode(a, b, (self.PC - 2) as u16)),
         }
 
+        self.last_pressed_key = None;
         Ok(())
     }
 }
@@ -1172,10 +1171,18 @@ mod tests {
 
         let mut emu = Emulator::load_rom(&rom[..]).unwrap();
 
+        // should get stuck, waiting for key
         exec_cycles(&mut emu, 10);
         assert_eq!(emu.PC, 0x200);
 
+        // key is down, but it needs to be released
+        // to register the keypress
         emu.set_key(0xA, true);
+        exec_cycles(&mut emu, 10);
+        assert_eq!(emu.PC, 0x200);
+
+        // release the key, now it should work
+        emu.set_key(0xA, false);
         exec_cycles(&mut emu, 2);
         assert_eq!(emu.V[0x0], 0xA);
         assert_eq!(emu.V[0x1], 0x1);
