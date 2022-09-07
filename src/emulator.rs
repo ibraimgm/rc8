@@ -268,18 +268,21 @@ impl Emulator {
                 let x = nibble_l(a) as usize;
                 let y = nibble_h(b) as usize;
                 self.V[x] |= self.V[y];
+                self.V[0xF] = 0;
             }
             // 8XY2 - Set VX = VX & VY
             0x8 if nibble_l(b) == 0x2 => {
                 let x = nibble_l(a) as usize;
                 let y = nibble_h(b) as usize;
                 self.V[x] &= self.V[y];
+                self.V[0xF] = 0;
             }
             // 8XY3 - Set VX = VX ^ VY
             0x8 if nibble_l(b) == 0x3 => {
                 let x = nibble_l(a) as usize;
                 let y = nibble_h(b) as usize;
                 self.V[x] ^= self.V[y];
+                self.V[0xF] = 0;
             }
             // 8XY4 - Set VX = VX + VY, set VF to 1 if carry
             0x8 if nibble_l(b) == 0x4 => {
@@ -721,47 +724,53 @@ mod tests {
 
     #[test]
     fn test_bitwise_or() {
-        let rom: [u8; 6] = [
-            0x60, 0xBB, // 0x200: SET V0 = 0xBB
-            0x61, 0x5A, // 0x202: SET V1 = 0x5A
-            0x80, 0x11, // 0x204: SET V0 = V0 | V1
+        let rom: [u8; 8] = [
+            0x6F, 0xFF, // 0x200: SET VF = 0xFF
+            0x60, 0xBB, // 0x202: SET V0 = 0xBB
+            0x61, 0x5A, // 0x204: SET V1 = 0x5A
+            0x80, 0x11, // 0x206: SET V0 = V0 | V1
         ];
 
         let mut emu = Emulator::load_rom(&rom[..]).unwrap();
 
-        exec_cycles(&mut emu, 3);
+        exec_cycles(&mut emu, 4);
         assert_eq!(emu.V[0x0], 0xFB);
-        assert_eq!(emu.PC, 0x206);
+        assert_eq!(emu.V[0xF], 0);
+        assert_eq!(emu.PC, 0x208);
     }
 
     #[test]
     fn test_bitwise_and() {
-        let rom: [u8; 6] = [
-            0x60, 0xBB, // 0x200: SET V0 = 0xBB
-            0x61, 0x5A, // 0x202: SET V1 = 0x5A
-            0x80, 0x12, // 0x204: SET V0 = V0 & V1
+        let rom: [u8; 8] = [
+            0x6F, 0xFF, // 0x200: SET VF = 0xFF
+            0x60, 0xBB, // 0x202: SET V0 = 0xBB
+            0x61, 0x5A, // 0x204: SET V1 = 0x5A
+            0x80, 0x12, // 0x206: SET V0 = V0 & V1
         ];
 
         let mut emu = Emulator::load_rom(&rom[..]).unwrap();
 
-        exec_cycles(&mut emu, 3);
+        exec_cycles(&mut emu, 4);
         assert_eq!(emu.V[0x0], 0x1A);
-        assert_eq!(emu.PC, 0x206);
+        assert_eq!(emu.V[0xF], 0);
+        assert_eq!(emu.PC, 0x208);
     }
 
     #[test]
     fn test_bitwise_xor() {
-        let rom: [u8; 6] = [
-            0x60, 0xBB, // 0x200: SET V0 = 0xBB
-            0x61, 0x5A, // 0x202: SET V1 = 0x5A
-            0x80, 0x13, // 0x204: SET V0 = V0 ^ V1
+        let rom: [u8; 8] = [
+            0x6F, 0xFF, // 0x200: SET VF = 0xFF
+            0x60, 0xBB, // 0x202: SET V0 = 0xBB
+            0x61, 0x5A, // 0x204: SET V1 = 0x5A
+            0x80, 0x13, // 0x206: SET V0 = V0 ^ V1
         ];
 
         let mut emu = Emulator::load_rom(&rom[..]).unwrap();
 
-        exec_cycles(&mut emu, 3);
+        exec_cycles(&mut emu, 4);
         assert_eq!(emu.V[0x0], 0xE1);
-        assert_eq!(emu.PC, 0x206);
+        assert_eq!(emu.V[0xF], 0);
+        assert_eq!(emu.PC, 0x208);
     }
 
     #[test]

@@ -11,7 +11,6 @@ It is commonly used as the "hello world" for emulator enthusiasts. If you're cur
 - [X] All [instructions](https://github.com/mattmikolay/chip-8/wiki/CHIP%E2%80%908-Instruction-Set) implemented with test cases.
 - [X] Proper, "clipped" drawing.
 - [ ] 100% pass on the [CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite).
-  - Missing `VF` clear quirk on bitwise operations.
   - Waiting for release on `FX0A` instruction.
 - [ ] Sound (buzzer) support.
 - [ ] Option to set background/foreground.
