@@ -301,8 +301,9 @@ impl Emulator {
             0x8 if nibble_l(b) == 0x6 => {
                 let x = nibble_l(a) as usize;
                 let y = nibble_h(b) as usize;
-                self.V[0xF] = self.V[y] & 1;
+                let flag = self.V[y] & 1;
                 self.V[x] = self.V[y] >> 1;
+                self.V[0xF] = flag;
             }
             // 8XY7 - Set VX = VY - VX, set VF to 0 if borrow
             0x8 if nibble_l(b) == 0x7 => {
@@ -316,8 +317,9 @@ impl Emulator {
             0x8 if nibble_l(b) == 0xE => {
                 let x = nibble_l(a) as usize;
                 let y = nibble_h(b) as usize;
-                self.V[0xF] = self.V[y] >> 7;
+                let flag = self.V[y] >> 7;
                 self.V[x] = self.V[y] << 1;
+                self.V[0xF] = flag;
             }
             // 9XY0 - skip next if VX != VY
             0x9 if nibble_l(b) == 0x0 => {
@@ -960,6 +962,25 @@ mod tests {
     }
 
     #[test]
+    fn test_shift_right_order() {
+        let rom: [u8; 10] = [
+            0x6F, 0x07, // 0x200: SET VF = 7
+            0x8F, 0xF6, // 0x202: SET VF = VF >> 1 (3, but overriden to 1)
+            0x80, 0xF0, // 0x204: SET V0 = VF
+            0x61, 0x03, // 0x206: SET V1 = 3
+            0x81, 0x16, // 0x208: SET V1 = V1 >> 1 (1)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        exec_cycles(&mut emu, 5);
+
+        assert_eq!(emu.V[0x0], 0x1);
+        assert_eq!(emu.V[0x1], 0x1);
+        assert_eq!(emu.V[0xF], 0x1);
+        assert_eq!(emu.PC, 0x20A);
+    }
+
+    #[test]
     fn test_shift_left() {
         let rom: [u8; 8] = [
             0x60, 0xF0, // 0x200: SET V0 = 0xF0
@@ -980,6 +1001,25 @@ mod tests {
         assert_eq!(emu.V[0x3], 0x1E);
         assert_eq!(emu.V[0xF], 0x0);
         assert_eq!(emu.PC, 0x208);
+    }
+
+    #[test]
+    fn test_shift_left_order() {
+        let rom: [u8; 10] = [
+            0x6F, 0xC8, // 0x200: SET VF = 0xC8 (200)
+            0x8F, 0xFE, // 0x202: SET VF = VF << 1 (normally 400, but overrides to 1)
+            0x80, 0xF0, // 0x204: SET V0 = VF (1)
+            0x61, 0xC8, // 0x206: SET V1 = 0xC8 (200)
+            0x81, 0x1E, // 0x208: SET V1 = V1 << 1 (400 - 0x90)
+        ];
+
+        let mut emu = Emulator::load_rom(&rom[..]).unwrap();
+        exec_cycles(&mut emu, 5);
+
+        assert_eq!(emu.V[0x0], 0x01);
+        assert_eq!(emu.V[0x1], 0x90);
+        assert_eq!(emu.V[0xF], 0x01);
+        assert_eq!(emu.PC, 0x20A);
     }
 
     #[test]
