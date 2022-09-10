@@ -2,6 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 
 mod app;
+mod beep;
 mod emulator;
 mod keymap;
 

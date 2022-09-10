@@ -1,15 +1,14 @@
 use std::time::Instant;
 
 use anyhow::Context;
-use sdl2::{event::Event, pixels::Color, rect::Rect};
+use sdl2::{audio::AudioSpecDesired, event::Event, pixels::Color, rect::Rect};
 use thiserror::Error;
 
-use crate::{
-    emulator::{DISPLAY_HEIGHT, DISPLAY_WIDTH},
+use super::{
+    beep::Beep,
+    emulator::{Emulator, DISPLAY_HEIGHT, DISPLAY_WIDTH},
     keymap::{Action, Keymap},
 };
-
-use super::emulator::Emulator;
 
 const CYCLE_DELAY: u128 = 1_000_000 / 540;
 const TIMER_DELAY: u128 = 1_000_000 / 60;
@@ -43,6 +42,10 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
         .video()
         .map_err(AppError::from)
         .context("failed to initialize video subsystem")?;
+    let sdl_audio = sdl_context
+        .audio()
+        .map_err(AppError::from)
+        .context("failed to initialize audio subsystem")?;
 
     // build the window
     let window = sdl_video
@@ -66,6 +69,19 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
         .event_pump()
         .map_err(AppError::from)
         .context("error obtaining the event pump")?;
+
+    // desired audio spec
+    let desired_spec = AudioSpecDesired {
+        freq: Some(44100),
+        channels: Some(1),
+        samples: None,
+    };
+
+    // get sound device
+    let audio_device = sdl_audio
+        .open_playback(None, &desired_spec, Beep::from)
+        .map_err(AppError::from)
+        .context("error opening audio device")?;
 
     let mut state = AppState::Running;
     let keymap = Keymap::Chip8;
@@ -116,6 +132,14 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
                     emu.decrease_timers();
                     timer_delta -= TIMER_DELAY;
                 }
+
+                // on COSMAC VIP, the sound is not played if ST is less than 2
+                // this is a hardware quirk.
+                if emu.ST > 1 {
+                    audio_device.resume()
+                } else {
+                    audio_device.pause()
+                }
             }
             // singnal to get out of the routine
             AppState::Quit => break,
@@ -146,5 +170,6 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
         canvas.present();
     }
 
+    audio_device.pause();
     Ok(())
 }
