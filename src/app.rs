@@ -10,10 +10,11 @@ use super::{
     keymap::{Action, Keymap},
 };
 
+pub const PIXEL_SIZE: usize = 10;
+
 const CYCLE_DELAY: u128 = 1_000_000 / 540;
 const TIMER_DELAY: u128 = 1_000_000 / 60;
 const VBLANK_DELAY: u128 = 1_000_000 / 60;
-const ZOOM: usize = 10;
 
 #[derive(Error, Debug)]
 enum AppError {
@@ -33,7 +34,12 @@ enum AppState {
 }
 
 /// Main application loop
-pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
+pub fn run(
+    mut emu: Emulator,
+    width: u32,
+    height: u32,
+    fullscreen: bool,
+) -> Result<(), anyhow::Error> {
     // initialize SDL context and subsystems
     let sdl_context = sdl2::init()
         .map_err(AppError::from)
@@ -48,21 +54,28 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
         .context("failed to initialize audio subsystem")?;
 
     // build the window
-    let window = sdl_video
-        .window(
-            "RC8",
-            (DISPLAY_WIDTH * ZOOM) as u32,
-            (DISPLAY_HEIGHT * ZOOM) as u32,
-        )
-        .position_centered()
-        .build()
-        .context("error creating window")?;
+    let mut window = sdl_video.window("RC8", width, height);
+
+    if fullscreen {
+        window.fullscreen_desktop();
+    } else {
+        window.position_centered();
+    }
+
+    let window = window.build().context("error creating window")?;
 
     // get the drawing canvas
     let mut canvas = window
         .into_canvas()
         .build()
         .context("error creating window canvas")?;
+
+    canvas
+        .set_logical_size(
+            (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
+            (DISPLAY_HEIGHT * PIXEL_SIZE) as u32,
+        )
+        .context("failed to set logical resolution")?;
 
     // get the event pump
     let mut event_pump = sdl_context
@@ -155,10 +168,10 @@ pub fn run(mut emu: Emulator) -> Result<(), anyhow::Error> {
             for y in 0..DISPLAY_HEIGHT {
                 if emu.get_pixel(x, y) {
                     let rect = Rect::new(
-                        (x * ZOOM) as i32,
-                        (y * ZOOM) as i32,
-                        ZOOM as u32,
-                        ZOOM as u32,
+                        (x * PIXEL_SIZE) as i32,
+                        (y * PIXEL_SIZE) as i32,
+                        PIXEL_SIZE as u32,
+                        PIXEL_SIZE as u32,
                     );
                     canvas
                         .fill_rect(rect)
