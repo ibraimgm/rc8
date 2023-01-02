@@ -70,6 +70,7 @@ pub enum Keymap {
 /// Actions to be executed by the application
 pub enum Action {
     EmulateKeyState(usize, bool),
+    TogglePause,
     Quit,
 }
 
@@ -94,6 +95,7 @@ impl Keymap {
                 @emulate Keycode::X => 0x00,
                 @emulate Keycode::C => 0x0B,
                 @emulate Keycode::V => 0x0F,
+                Keycode::Space => Action::TogglePause,
                 Keycode::Escape => Action::Quit,
             ),
         }

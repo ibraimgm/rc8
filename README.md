@@ -15,8 +15,8 @@ It is commonly used as the "hello world" for emulator enthusiasts. If you're cur
 - [ ] Option to set background/foreground.
 - [X] Option to change the display size.
 - [ ] Multiple keymaps.
-- [ ] Options to pause/continue and reset ROM.
-- [ ] Save/Load state.
+- [X] Pause/continue.
+- [ ] Save/Load state and reset ROM.
 
 ## Building and running
 
@@ -45,4 +45,8 @@ To exit the emulator, type `Esc`.
 
 ## License
 
-See `LICENSE`.
+For details, please see `LICENSE`.
+
+This project uses extra resources made by different people:
+
+- [Computer Speak v0.3](https://fontlibrary.org/en/font/computer-speak) font, by Mcguy215.

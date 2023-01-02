@@ -1,7 +1,14 @@
 use std::time::Instant;
 
 use anyhow::Context;
-use sdl2::{audio::AudioSpecDesired, event::Event, pixels::Color, rect::Rect};
+use sdl2::{
+    audio::AudioSpecDesired,
+    event::Event,
+    pixels::{Color, PixelFormatEnum},
+    rect::Rect,
+    render::{BlendMode, TextureValueError},
+    surface::Surface,
+};
 use thiserror::Error;
 
 use super::{
@@ -20,6 +27,15 @@ const VBLANK_DELAY: u128 = 1_000_000 / 60;
 enum AppError {
     #[error("SDL error: {0}")]
     Sdl(String),
+
+    #[error("SDL TTF error: {0}")]
+    TTFInit(#[from] sdl2::ttf::InitError),
+
+    #[error("SDL font error: {0}")]
+    Font(#[from] sdl2::ttf::FontError),
+
+    #[error("SDL texture error: {0}")]
+    Texture(#[from] TextureValueError),
 }
 
 impl From<String> for AppError {
@@ -28,8 +44,10 @@ impl From<String> for AppError {
     }
 }
 
+#[derive(PartialEq)]
 enum AppState {
     Running,
+    Paused,
     Quit,
 }
 
@@ -52,6 +70,18 @@ pub fn run(
         .audio()
         .map_err(AppError::from)
         .context("failed to initialize audio subsystem")?;
+
+    // initialize SDL_ttf
+    let ttf_context = sdl2::ttf::init()
+        .map_err(AppError::from)
+        .context("failed to initialize SDL_ttf context")?;
+
+    // load TTF font
+    let font_bytes = include_bytes!("computer-speak-v0.3.ttf");
+    let font_rwops = sdl2::rwops::RWops::from_bytes(font_bytes).map_err(AppError::from)?;
+    let font = ttf_context
+        .load_font_from_rwops(font_rwops, 64)
+        .map_err(AppError::from)?;
 
     // build the window
     let mut window = sdl_video.window("RC8", width, height);
@@ -113,6 +143,13 @@ pub fn run(
             match keymap.translate_action(&event) {
                 Some(Action::EmulateKeyState(key, state)) => emu.set_key(key, state),
                 Some(Action::Quit) => state = AppState::Quit,
+                Some(Action::TogglePause) => {
+                    state = if state == AppState::Running {
+                        AppState::Paused
+                    } else {
+                        AppState::Running
+                    }
+                }
                 None => {
                     if let Event::Quit { .. } = event {
                         state = AppState::Quit
@@ -154,7 +191,14 @@ pub fn run(
                     audio_device.pause()
                 }
             }
-            // singnal to get out of the routine
+
+            // do nothing if paused, except stopping the buzzer
+            // it will be resumed in the running logic, if needed
+            AppState::Paused => {
+                audio_device.pause();
+            }
+
+            // signal to get out of the routine
             AppState::Quit => break,
         }
 
@@ -180,6 +224,55 @@ pub fn run(
                 }
             }
         }
+
+        // when paused, we add an extra overlay
+        if state == AppState::Paused {
+            let text = font
+                .render("-- PAUSE --")
+                .solid(Color::BLACK)
+                .map_err(AppError::from)?;
+            let text_rect = {
+                let (w, h) = font.size_of("-- PAUSE --").map_err(AppError::from)?;
+                let center_w = DISPLAY_WIDTH * PIXEL_SIZE / 2;
+                let center_h = DISPLAY_HEIGHT * PIXEL_SIZE / 2;
+                let x = (center_w as u32) - (w / 2);
+                let y = (center_h as u32) - (h / 2);
+
+                Rect::new(x as i32, y as i32, w, h)
+            };
+
+            let mut surface = Surface::new(
+                (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
+                (DISPLAY_HEIGHT * PIXEL_SIZE) as u32,
+                PixelFormatEnum::RGBA8888,
+            )
+            .map_err(AppError::from)
+            .context("error creating SDL surface")?;
+
+            surface
+                .set_blend_mode(BlendMode::Blend)
+                .map_err(AppError::from)?;
+            surface
+                .fill_rect(None, Color::RGBA(0x80, 0x80, 0x80, 240))
+                .map_err(AppError::from)
+                .context("error drawing on surface")?;
+
+            text.blit(None, &mut surface, text_rect)
+                .map_err(AppError::from)?;
+
+            let texture_creator = canvas.texture_creator();
+            let texture = texture_creator
+                .create_texture_from_surface(&surface)
+                .map_err(AppError::from)
+                .context("error creating surface")?;
+
+            canvas
+                .copy(&texture, None, None)
+                .map_err(AppError::from)
+                .context("error drawing texture")?;
+        }
+
+        // update the screen
         canvas.present();
     }
 
