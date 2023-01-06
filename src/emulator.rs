@@ -107,6 +107,7 @@ pub struct Emulator {
 
     // screen - 64x32
     screen: [u64; 32],
+    prev_screen: [u64; 32],
 
     // if a vblank interrupt happened
     // the draw command waits for this, to avoid
@@ -134,6 +135,7 @@ impl Emulator {
             keys: [false; 16],
             rng: BufferedRng::new(WyRand::new()),
             screen: [0u64; 32],
+            prev_screen: [0u64; 32],
             vblank_interrupt: false,
             last_pressed_key: None,
         };
@@ -184,6 +186,14 @@ impl Emulator {
 
         let mask = 1 << (DISPLAY_WIDTH - x - 1);
         (self.screen[y] & mask) > 0
+    }
+
+    /// Returns true if the pixels on the screen were changed since the
+    /// last call of this  method
+    pub fn screen_changed(&mut self) -> bool {
+        let changed = self.screen != self.prev_screen;
+        self.prev_screen = self.screen;
+        changed
     }
 
     /// Execute a single chip-8 CPU instruction.

@@ -6,8 +6,9 @@ use sdl2::{
     event::Event,
     pixels::{Color, PixelFormatEnum},
     rect::Rect,
-    render::{BlendMode, TextureValueError},
+    render::{BlendMode, Texture, TextureCreator, TextureValueError},
     surface::Surface,
+    ttf::Font,
 };
 use thiserror::Error;
 
@@ -107,6 +108,9 @@ pub fn run(
         )
         .context("failed to set logical resolution")?;
 
+    // build a texture creator
+    let texture_creator = canvas.texture_creator();
+
     // get the event pump
     let mut event_pump = sdl_context
         .event_pump()
@@ -132,6 +136,8 @@ pub fn run(
     let mut timer_delta = 0;
     let mut cpu_delta = 0;
     let mut vblank_delta = 0;
+    let mut emulator_texture = None;
+    let mut pause_texture = None;
 
     loop {
         let now = Instant::now();
@@ -202,80 +208,119 @@ pub fn run(
             AppState::Quit => break,
         }
 
-        // draw a frame
-        // this will always happens, regardless of the simulation state
-        canvas.set_draw_color(Color::RGB(0x00, 0x00, 0x00));
-        canvas.clear();
+        // draw a frame - this will always happens, regardless of the simulation state
+        // first, we cache the screen state
+        if emu.screen_changed() || emulator_texture.is_none() {
+            let texture = draw_emulator_screen(&emu, &texture_creator)
+                .context("error computing emulator state")?;
+            emulator_texture = Some(texture);
+        }
 
-        canvas.set_draw_color(Color::RGB(0xFF, 0xFF, 0xFF));
-        for x in 0..DISPLAY_WIDTH {
-            for y in 0..DISPLAY_HEIGHT {
-                if emu.get_pixel(x, y) {
-                    let rect = Rect::new(
-                        (x * PIXEL_SIZE) as i32,
-                        (y * PIXEL_SIZE) as i32,
-                        PIXEL_SIZE as u32,
-                        PIXEL_SIZE as u32,
-                    );
-                    canvas
-                        .fill_rect(rect)
-                        .map_err(AppError::from)
-                        .context("error drawing to canvas")?;
-                }
-            }
+        // then, we do the real drawing
+        {
+            let texture = emulator_texture.as_ref().unwrap();
+            canvas
+                .copy(texture, None, None)
+                .map_err(AppError::from)
+                .context("error drawing emulator screen")?;
         }
 
         // when paused, we add an extra overlay
         if state == AppState::Paused {
-            let text = font
-                .render("-- PAUSE --")
-                .solid(Color::BLACK)
-                .map_err(AppError::from)?;
-            let text_rect = {
-                let (w, h) = font.size_of("-- PAUSE --").map_err(AppError::from)?;
-                let center_w = DISPLAY_WIDTH * PIXEL_SIZE / 2;
-                let center_h = DISPLAY_HEIGHT * PIXEL_SIZE / 2;
-                let x = (center_w as u32) - (w / 2);
-                let y = (center_h as u32) - (h / 2);
+            if pause_texture.is_none() {
+                let texture = draw_pause_screen(&font, &texture_creator)
+                    .map_err(AppError::from)
+                    .context("error creating pause screen")?;
+                pause_texture = Some(texture);
+            }
 
-                Rect::new(x as i32, y as i32, w, h)
-            };
-
-            let mut surface = Surface::new(
-                (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
-                (DISPLAY_HEIGHT * PIXEL_SIZE) as u32,
-                PixelFormatEnum::RGBA8888,
-            )
-            .map_err(AppError::from)
-            .context("error creating SDL surface")?;
-
-            surface
-                .set_blend_mode(BlendMode::Blend)
-                .map_err(AppError::from)?;
-            surface
-                .fill_rect(None, Color::RGBA(0x80, 0x80, 0x80, 240))
-                .map_err(AppError::from)
-                .context("error drawing on surface")?;
-
-            text.blit(None, &mut surface, text_rect)
-                .map_err(AppError::from)?;
-
-            let texture_creator = canvas.texture_creator();
-            let texture = texture_creator
-                .create_texture_from_surface(&surface)
-                .map_err(AppError::from)
-                .context("error creating surface")?;
+            let texture = pause_texture.as_ref().unwrap();
 
             canvas
-                .copy(&texture, None, None)
+                .copy(texture, None, None)
                 .map_err(AppError::from)
-                .context("error drawing texture")?;
+                .context("error drawing pause screen")?;
         }
 
         // update the screen
         canvas.present();
     }
 
+    // pause_texture = None;
     audio_device.pause();
     Ok(())
+}
+
+fn draw_emulator_screen<'a, T>(
+    emu: &Emulator,
+    texture_creator: &'a TextureCreator<T>,
+) -> Result<Texture<'a>, AppError> {
+    const BG_COLOR: Color = Color::BLACK;
+    const FG_COLOR: Color = Color::WHITE;
+
+    // create the screen surface
+    let mut surface = Surface::new(
+        (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
+        (DISPLAY_HEIGHT * PIXEL_SIZE) as u32,
+        PixelFormatEnum::RGBA8888,
+    )?;
+
+    // clear the background
+    surface.fill_rect(None, BG_COLOR)?;
+
+    // draw the squares
+    for x in 0..DISPLAY_WIDTH {
+        for y in 0..DISPLAY_HEIGHT {
+            if emu.get_pixel(x, y) {
+                let rect = Rect::new(
+                    (x * PIXEL_SIZE) as i32,
+                    (y * PIXEL_SIZE) as i32,
+                    PIXEL_SIZE as u32,
+                    PIXEL_SIZE as u32,
+                );
+                surface.fill_rect(rect, FG_COLOR)?;
+            }
+        }
+    }
+
+    Ok(texture_creator.create_texture_from_surface(surface)?)
+}
+
+fn draw_pause_screen<'a, T>(
+    font: &Font,
+    texture_creator: &'a TextureCreator<T>,
+) -> Result<Texture<'a>, AppError> {
+    const TEXT: &str = "-- PAUSE --";
+    const BG_COLOR: Color = Color::RGBA(0x80, 0x80, 0x80, 240);
+    const FG_COLOR: Color = Color::BLACK;
+
+    // create the text surface and compute the rect size for
+    // the center of the screen
+    let text = font.render(TEXT).solid(FG_COLOR)?;
+    let text_rect = {
+        let (w, h) = font.size_of(TEXT)?;
+        let center_w = DISPLAY_WIDTH * PIXEL_SIZE / 2;
+        let center_h = DISPLAY_HEIGHT * PIXEL_SIZE / 2;
+        let x = (center_w as u32) - (w / 2);
+        let y = (center_h as u32) - (h / 2);
+
+        Rect::new(x as i32, y as i32, w, h)
+    };
+
+    // create a surface to paint the screen
+    let mut surface = Surface::new(
+        (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
+        (DISPLAY_HEIGHT * PIXEL_SIZE) as u32,
+        PixelFormatEnum::RGBA8888,
+    )?;
+    surface.set_blend_mode(BlendMode::Blend)?;
+
+    // semi-transparent background
+    surface.fill_rect(None, BG_COLOR)?;
+
+    // text
+    text.blit(None, &mut surface, text_rect)?;
+
+    // return the texture
+    Ok(texture_creator.create_texture_from_surface(&surface)?)
 }
