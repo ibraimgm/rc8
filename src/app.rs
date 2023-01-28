@@ -45,6 +45,14 @@ impl From<String> for AppError {
     }
 }
 
+pub struct Options {
+    pub width: u32,
+    pub height: u32,
+    pub fullscreen: bool,
+    pub bgcolor: u32,
+    pub fgcolor: u32,
+}
+
 #[derive(PartialEq)]
 enum AppState {
     Running,
@@ -53,12 +61,7 @@ enum AppState {
 }
 
 /// Main application loop
-pub fn run(
-    mut emu: Emulator,
-    width: u32,
-    height: u32,
-    fullscreen: bool,
-) -> Result<(), anyhow::Error> {
+pub fn run(mut emu: Emulator, options: Options) -> Result<(), anyhow::Error> {
     // initialize SDL context and subsystems
     let sdl_context = sdl2::init()
         .map_err(AppError::from)
@@ -85,9 +88,9 @@ pub fn run(
         .map_err(AppError::from)?;
 
     // build the window
-    let mut window = sdl_video.window("RC8", width, height);
+    let mut window = sdl_video.window("RC8", options.width, options.height);
 
-    if fullscreen {
+    if options.fullscreen {
         window.fullscreen_desktop();
     } else {
         window.position_centered();
@@ -129,6 +132,12 @@ pub fn run(
         .open_playback(None, &desired_spec, Beep::from)
         .map_err(AppError::from)
         .context("error opening audio device")?;
+
+    // convert color values
+    let bgcolor = options.bgcolor.to_be_bytes();
+    let bgcolor = Color::RGBA(bgcolor[0], bgcolor[1], bgcolor[2], 0xff);
+    let fgcolor = options.fgcolor.to_be_bytes();
+    let fgcolor = Color::RGBA(fgcolor[0], fgcolor[1], fgcolor[2], 0xff);
 
     let mut state = AppState::Running;
     let keymap = Keymap::Chip8;
@@ -211,7 +220,7 @@ pub fn run(
         // draw a frame - this will always happens, regardless of the simulation state
         // first, we cache the screen state
         if emu.screen_changed() || emulator_texture.is_none() {
-            let texture = draw_emulator_screen(&emu, &texture_creator)
+            let texture = draw_emulator_screen(&emu, bgcolor, fgcolor, &texture_creator)
                 .context("error computing emulator state")?;
             emulator_texture = Some(texture);
         }
@@ -253,11 +262,10 @@ pub fn run(
 
 fn draw_emulator_screen<'a, T>(
     emu: &Emulator,
+    bgcolor: Color,
+    fgcolor: Color,
     texture_creator: &'a TextureCreator<T>,
 ) -> Result<Texture<'a>, AppError> {
-    const BG_COLOR: Color = Color::BLACK;
-    const FG_COLOR: Color = Color::WHITE;
-
     // create the screen surface
     let mut surface = Surface::new(
         (DISPLAY_WIDTH * PIXEL_SIZE) as u32,
@@ -266,7 +274,7 @@ fn draw_emulator_screen<'a, T>(
     )?;
 
     // clear the background
-    surface.fill_rect(None, BG_COLOR)?;
+    surface.fill_rect(None, bgcolor)?;
 
     // draw the squares
     for x in 0..DISPLAY_WIDTH {
@@ -278,7 +286,7 @@ fn draw_emulator_screen<'a, T>(
                     PIXEL_SIZE as u32,
                     PIXEL_SIZE as u32,
                 );
-                surface.fill_rect(rect, FG_COLOR)?;
+                surface.fill_rect(rect, fgcolor)?;
             }
         }
     }

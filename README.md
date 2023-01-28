@@ -12,7 +12,7 @@ It is commonly used as the "hello world" for emulator enthusiasts. If you're cur
 - [X] Proper, "clipped" drawing.
 - [X] 100% pass on the [CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite).
 - [X] Sound (buzzer) support.
-- [ ] Option to set background/foreground.
+- [X] Option to set background/foreground.
 - [X] Option to change the display size.
 - [ ] Multiple keymaps.
 - [X] Pause/continue.
