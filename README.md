@@ -14,9 +14,9 @@ It is commonly used as the "hello world" for emulator enthusiasts. If you're cur
 - [X] Sound (buzzer) support.
 - [X] Option to set background/foreground.
 - [X] Option to change the display size.
-- [ ] Multiple keymaps.
 - [X] Pause/continue.
-- [ ] Save/Load state and reset ROM.
+
+**Note that this aims to emulate the "normal" CHIP-8, and *NOT* its multiple variants, like S-CHIP8, CHIP-8C, M-CHIP8, etc.** If you encounter "odd" behavir, please double-check if you're using a correct ROM file.
 
 ## Building and running
 
@@ -41,7 +41,71 @@ target/release/rc8 some-rom-file.ch8
 $ cargo run -- some-rom-file.ch8
 ```
 
-To exit the emulator, type `Esc`.
+To exit the emulator, type `Esc`. See [Keyboard mapping](#keyboard-mapping) for details.
+
+## Command-line options
+
+Use `--help` to show the available command-line options:
+
+```bash
+rc8 0.1.0
+Rafael Ibraim <ibraim.gm@gmail.com>
+A simple Chip8 emulator
+
+USAGE:
+    rc8 [OPTIONS] <FILENAME>
+
+ARGS:
+    <FILENAME>    ROM file to load
+
+OPTIONS:
+        --bg <BG>                      Set the background color
+    -f, --fullscreen                   Enable fullscreen
+        --fg <FG>                      Set the foreground color
+    -h, --help                         Print help information
+    -V, --version                      Print version information
+    -w, --window-size <WINDOW_SIZE>    Size of the window (WxH)
+```
+
+If no options are specified, you get a 640x320 black and white output:
+
+![rc8 roms/chip8-test-suite.ch8](./rc8_default.gif)
+
+You can change the colors to a specific hex value by using `--fg` and/or `--bg`. If only one one the values is specified, the system will pick the opposite value automatically.
+
+For example, this was ran with `--fg #00dead`:
+
+![rc8 --fg #00dead roms/chip8-test-suite.ch8](./rc8_fg.gif)
+
+And this with `--bg #cabeca`:
+
+![rc8 --bg #cabca roms/chip8-test-suite.ch8](./rc8_bg.gif)
+
+You can also use `-w`/`--window-size` to change the window size, or just `-f` to make it full screen. In both cases, the aspect ratio is preserved and you will see black bars on the screen to account for the diferent ratio.
+
+![rc8 --window-size 1024x768 roms/chip8-test-suite.ch8](./rc8_ws.gif)
+
+## Keyboard mapping
+
+```text
+ (Your keyboard)                     (CHIP-8 Keyboard)
+,---,---,---,---,                    ,---,---,---,---,
+| 1 | 2 | 3 | 4 |                    | 1 | 2 | 3 | C |
+,---,---,---,---,                    ,---,---,---,---,
+| Q | W | E | R |                    | 4 | 5 | 6 | D |
+,---,---,---,---,      >>>>>>>>      ,---,---,---,---,
+| A | S | D | F |                    | 7 | 8 | 9 | E |
+,---,---,---,---,                    ,---,---,---,---,
+| Z | X | C | V |                    | A | 0 | B | F |
+'---'---'---'---'                    '---'---'---'---'
+
+  ,-------------,
+  |   Spacebar  |      >>>>>>>>      Pause/Resume
+  '-------------'
+          ,-----,
+          | Esc |      >>>>>>>>      Quit
+          '-----'
+```
 
 ## License
 
@@ -50,3 +114,6 @@ For details, please see `LICENSE`.
 This project uses extra resources made by different people:
 
 - [Computer Speak v0.3](https://fontlibrary.org/en/font/computer-speak) font, by Mcguy215.
+- [CHIP-8 Test suite](https://github.com/Timendus/chip8-test-suite) rom, by [Timendus](https://github.com/Timendus).
+- [CHIP-8 Test ROM with audio](https://github.com/NinjaWeedle/chip8-test-rom-with-audio), from [NinjaWeedle](https://github.com/NinjaWeedle).
+- Additional roms for testing from [this repository](https://github.com/kripod/chip8-roms).
